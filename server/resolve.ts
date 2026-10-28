@@ -116,10 +116,12 @@ async function arxivMeta(id: string, signal?: AbortSignal): Promise<Partial<Pape
         const summary = /<summary>([\s\S]*?)<\/summary>/.exec(entry)?.[1];
         const authors = [...entry.matchAll(/<name>([\s\S]*?)<\/name>/g)].map((m) => decodeEntities(m[1]).trim());
         if (title && !/^Error$/i.test(title.trim())) {
+          const { field, year } = entryFieldYear(entry);
           return {
             title: decodeEntities(title).replace(/\s+/g, ' ').trim(),
             abstract: summary ? decodeEntities(summary).replace(/\s+/g, ' ').trim() : undefined,
             authors: authors.length ? authors : undefined,
+            field, year,
           };
         }
       }
@@ -134,6 +136,32 @@ async function arxivMeta(id: string, signal?: AbortSignal): Promise<Partial<Pape
     unread(res);
   } catch { /* metadata is optional */ }
   return {};
+}
+
+/** An arXiv API entry's primary category (cs.CL…) and the year it first came out. */
+function entryFieldYear(entry: string): { field?: string; year?: number } {
+  const field = /<arxiv:primary_category[^>]*term="([^"]+)"/.exec(entry)?.[1] || /<category[^>]*term="([^"]+)"/.exec(entry)?.[1];
+  const y = Number(/<published>(\d{4})-/.exec(entry)?.[1]);
+  return { field: field || undefined, year: y > 1900 ? y : undefined };
+}
+
+/** Field and year for many arXiv papers at once (one request per 40), for sorting the shelf: id (without version) →
+ *  what arXiv says. Papers arXiv does not answer for are left out. */
+export async function arxivFields(ids: string[], signal?: AbortSignal): Promise<Map<string, { field?: string; year?: number }>> {
+  const out = new Map<string, { field?: string; year?: number }>();
+  const base = [...new Set(ids.map((x) => x.replace(/v\d+$/, '')))];
+  for (let i = 0; i < base.length; i += 40) {
+    const chunk = base.slice(i, i + 40);
+    const res = await get(`https://export.arxiv.org/api/query?id_list=${chunk.map(encodeURIComponent).join(',')}&max_results=${chunk.length}`, { timeout: 20000, signal });
+    if (!res.ok) { unread(res); throw new Error(`arXiv 没有回应（HTTP ${res.status}）`); }
+    const xml = await res.text();
+    for (const m of xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)) {
+      const id = /<id>[^<]*\/abs\/([^<]+?)(v\d+)?<\/id>/.exec(m[1])?.[1];
+      if (id) out.set(id, entryFieldYear(m[1]));
+    }
+    if (i + 40 < base.length) await new Promise((r) => setTimeout(r, 3000));   // arXiv asks for a pause between calls
+  }
+  return out;
 }
 
 async function openreviewMeta(id: string, signal?: AbortSignal): Promise<Partial<PaperMeta>> {

@@ -6,10 +6,14 @@ import path from 'node:path';
 import { aiStatus, handleAsk } from './ai/index.ts';
 import { IMMUTABLE, sendFile } from './files.ts';
 import { ndjson, readBody, readJson, Router, sendError, sendJson, sendJsonBody } from './http.ts';
-import { fetchPaper } from './resolve.ts';
-import { addBook, bookFile, coverPath, deleteBook, ensureBooksDir, fetchBook, fetchCatalog, getBook, listBooksJson, patchBook, writeCover } from './books.ts';
+import { arxivFields, fetchPaper } from './resolve.ts';
 import {
-  addPaper, deletePaper, ensureDirs, getMeta, listPapersJson, loadSettings, paperDir, patchMeta, publicSettings,
+  addBook, batchBooks, bookFile, coverPath, deleteBook, emptyBookTrash, ensureBooksDir, fetchBook, fetchCatalog, forgetBook, getBook,
+  listBooksJson, listBookTrash, patchBook, purgeBook, restoreBook, trashBook, trashCoverPath, writeCover,
+} from './books.ts';
+import {
+  addPaper, batchPapers, deletePaper, emptyPaperTrash, ensureDirs, forgetPaper, getMeta, listPapers, listPapersJson, listPaperTrash, loadSettings,
+  paperDir, patchMeta, publicSettings, purgePaper, restorePaper, searchPaperText, trashPaper, trashThumbPath,
   DATA_DIR, readNotes, ROOT, saveSettings, thumbPath, writeNotes, writePaperText, writeThumb,
 } from './store.ts';
 
@@ -82,6 +86,89 @@ api.patch('/api/papers/:id', async (req, res) => {
 api.del('/api/papers/:id', async (req, res) => {
   await deletePaper(req.params.id);
   sendJson(res, { ok: true });
+});
+
+/* ---------- taking things off the desk, and finding them again ---------- */
+// into the bin (folder and all), and out again
+api.post('/api/papers/:id/trash', async (req, res) => {
+  const m = await trashPaper(req.params.id);
+  if (!m) return sendError(res, 404, 'No such paper');
+  sendJson(res, m);
+});
+api.post('/api/books/:id/trash', async (req, res) => {
+  const m = await trashBook(req.params.id);
+  if (!m) return sendError(res, 404, 'No such book');
+  sendJson(res, m);
+});
+const bin = {
+  papers: { list: listPaperTrash, restore: restorePaper, purge: purgePaper, forget: forgetPaper, empty: emptyPaperTrash, pic: trashThumbPath },
+  books: { list: listBookTrash, restore: restoreBook, purge: purgeBook, forget: forgetBook, empty: emptyBookTrash, pic: trashCoverPath },
+};
+const binOf = (kind: string) => (kind === 'papers' || kind === 'books' ? bin[kind] : null);
+api.get('/api/trash/:kind', async (req, res) => {
+  const b = binOf(req.params.kind);
+  if (!b) return sendError(res, 404, 'No such bin');
+  sendJson(res, await b.list());
+});
+api.post('/api/trash/:kind/empty', async (req, res) => {
+  const b = binOf(req.params.kind);
+  if (!b) return sendError(res, 404, 'No such bin');
+  sendJson(res, { cleared: await b.empty() });
+});
+api.post('/api/trash/:kind/:id/restore', async (req, res) => {
+  const b = binOf(req.params.kind);
+  if (!b) return sendError(res, 404, 'No such bin');
+  const r = await b.restore(req.params.id);
+  if (r === 'missing') return sendError(res, 404, 'Not in the bin');
+  if (r === 'purged') return sendError(res, 409, '文件已经清除了，请重新导入');
+  sendJson(res, { ok: true, result: r });
+});
+api.post('/api/trash/:kind/:id/purge', async (req, res) => {
+  const b = binOf(req.params.kind);
+  if (!b) return sendError(res, 404, 'No such bin');
+  const m = await b.purge(req.params.id);
+  if (!m) return sendError(res, 404, 'Not in the bin');
+  sendJson(res, m);
+});
+api.del('/api/trash/:kind/:id', async (req, res) => {
+  const b = binOf(req.params.kind);
+  if (!b) return sendError(res, 404, 'No such bin');
+  await b.forget(req.params.id);
+  sendJson(res, { ok: true });
+});
+api.get('/api/trash/:kind/:id/pic', async (req, res) => {
+  const b = binOf(req.params.kind);
+  if (!b) return sendError(res, 404, 'No such bin');
+  const ok = await sendFile(req, res, b.pic(req.params.id), 'no-cache');
+  if (!ok) sendError(res, 404, 'No picture');
+});
+// many at once: tags on or off, or into the bin
+api.post('/api/library/:kind/batch', async (req, res) => {
+  const { ids, op, tags } = await readJson<{ ids: string[]; op: 'tag' | 'untag' | 'trash'; tags?: string[] }>(req);
+  if (!Array.isArray(ids) || !['tag', 'untag', 'trash'].includes(op)) return sendError(res, 400, 'Bad batch');
+  const kind = req.params.kind;
+  if (kind !== 'papers' && kind !== 'books') return sendError(res, 404, 'No such library');
+  sendJson(res, kind === 'papers' ? await batchPapers(ids.slice(0, 5000), op, tags) : await batchBooks(ids.slice(0, 5000), op, tags));
+});
+// the papers' own text, searched (on request: it reads every paper.txt)
+api.get('/api/papers-search', async (req, res) => {
+  sendJson(res, await searchPaperText(String(req.query.get('q') || '').slice(0, 200)));
+});
+// sorting the shelf: arXiv's field and year for the arXiv papers that have none yet
+api.post('/api/papers-enrich', async (_req, res) => {
+  const todo = (await listPapers()).filter((m) => m.arxivId && !m.field);
+  if (!todo.length) return sendJson(res, { asked: 0, found: 0 });
+  const ctl = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) ctl.abort(); });
+  const got = await arxivFields(todo.map((m) => m.arxivId!), ctl.signal);
+  let found = 0;
+  for (const m of todo) {
+    const x = got.get(m.arxivId!.replace(/v\d+$/, ''));
+    if (!x?.field) continue;
+    await patchMeta(m.id, { field: x.field, ...(x.year && !m.year ? { year: x.year } : {}) });
+    found++;
+  }
+  sendJson(res, { asked: todo.length, found });
 });
 
 api.get('/api/papers/:id/pdf', async (req, res) => {

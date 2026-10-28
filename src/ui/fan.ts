@@ -7,8 +7,10 @@
 // the cards, the 收起 button or Esc puts the hand back on the pile.
 // The same hand holds the books from the desk's textbook (CardFan with a book deck: covers, authors, how far read).
 import type { BookMeta } from '../books/types';
+import { matches, type Group, type Section } from '../library/facets';
 import type { PaperMeta } from '../types';
-import { h } from '../util/dom';
+import { dismissed, h, onPressOutside, twice } from '../util/dom';
+import { ICONS } from './icons';
 
 export type FanSort = 'recent' | 'oldest' | 'title' | 'size' | 'author';
 const PULL = 54, LIFT = 1.07;
@@ -17,6 +19,7 @@ const PULL = 54, LIFT = 1.07;
 export interface FanDeck<T> {
   /** what the hand is called (for screen readers) */
   name: string;
+  id(m: T): string;
   title(m: T): string;
   /** the small line under the title */
   sub(m: T): string;
@@ -39,8 +42,17 @@ export interface FanDeck<T> {
   unit: string;
   /** more buttons for the bar (before 收起) */
   extra?: Array<{ label: string; title: string; cls?: string; on: () => void }>;
-  /** taking one off for good (right-click a card): what the button says, and doing it */
-  remove?: { label: string; confirm: string; run(m: T): Promise<void> };
+  /** the pulled-out card's own buttons: label it (the tag card, beside `at`), throw it away (pressed twice) */
+  tags?(m: T, at: DOMRect, from: HTMLElement): void;
+  trash?(m: T): Promise<void>;
+  /** filtering the hand: the groups to pick from, everything a filter picks from (papers: the whole library, not only
+   *  the pile), the words a search looks through */
+  filter?: { sections(): Array<Section<T>>; all(): T[]; words(m: T): string };
+  /** the bar's library buttons: the list card (整理) and the bin (the hand stays out under them) */
+  organize?(): void;
+  bin?(): void;
+  /** a card of the app's is open over the hand: the keys are its, not the hand's */
+  keysOff?(): boolean;
 }
 
 interface Geom { cx: number; cy: number; R: number; step: number; a0: number; n: number; cw: number; ch: number }
@@ -76,6 +88,13 @@ export class CardFan<T> {
   private busy = false;
   private touch = false;
   private wheelAcc = 0;
+  /** the hand filtered: by a group, by words */
+  private filt: { g: Group<T> | null; q: string } | null = null;
+  private filterB: HTMLButtonElement | null = null;
+  private filterPop: HTMLDivElement | null = null;
+  private offPop: (() => void) | null = null;
+  /** the press that went down only put something away (the filter, a card over the hand): its click does nothing */
+  private swallow = false;
 
   constructor(host: HTMLElement, private cfg: FanDeck<T>) {
     this.veil = h('div', { class: 'fan-veil' });
@@ -92,29 +111,53 @@ export class CardFan<T> {
     const shuffle = pill('洗牌', cfg.shuffleTitle, () => { void this.shuffle(); });
     shuffle.classList.add('shuffle');
     const extra = (cfg.extra || []).map((x) => { const b = pill(x.label, x.title, () => x.on()); if (x.cls) b.classList.add(x.cls); return b; });
+    // the library: filter the hand, the list to sort things out, the bin
+    const lib: HTMLElement[] = [];
+    if (cfg.filter) {
+      this.filterB = pill('筛选', '只看一组：没读过的、某个标签、某个领域…；或者搜', () => this.toggleFilter());
+      this.filterB.classList.add('filter');
+      lib.push(this.filterB);
+    }
+    if (cfg.organize) { const b = pill('整理', '列表：搜、贴标签、归类、多选（牌留在这里）', () => { this.hideFilter(); cfg.organize!(); }); b.classList.add('organize'); lib.push(b); }
+    if (cfg.bin) { const b = h('button', { class: 'fan-pill bin', type: 'button', title: '垃圾桶：扔掉的都在这里，可以放回或重新导入', html: ICONS.trash }) as HTMLButtonElement; b.addEventListener('click', (e) => { e.stopPropagation(); this.hideFilter(); cfg.bin!(); }); lib.push(b); }
     const close = pill('收起 ×', '收起（Esc）', () => this.close());
     close.classList.add('close');
-    this.bar = h('div', { class: 'fan-bar' }, h('span', { class: 'fan-pager' }, this.prevB, this.info, this.nextB), sorts, shuffle, ...extra, close);
+    this.bar = h('div', { class: 'fan-bar' }, h('span', { class: 'fan-pager' }, this.prevB, this.info, this.nextB), sorts, shuffle, ...lib, ...extra, close);
     this.el = h('div', { class: 'fan' }, this.veil, this.handEl, this.bar);
     for (const t of ['pointerdown', 'pointerup', 'click', 'dblclick']) this.bar.addEventListener(t, (e) => e.stopPropagation());
-    this.el.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') this.hover(e.clientX, e.clientY); });
+
     this.el.addEventListener('pointerleave', () => { if (!this.touch) this.select(-1); });
     this.el.addEventListener('click', (e) => this.click(e));
-    this.el.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.touch = e.pointerType !== 'mouse'; });
+    this.el.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.touch = e.pointerType !== 'mouse'; this.swallow = dismissed.has(e); });
     this.el.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
-    this.el.addEventListener('contextmenu', (e) => this.askRemove(e));
+    this.el.addEventListener('contextmenu', (e) => { e.preventDefault(); const i = this.hit(e.clientX, e.clientY); if (i >= 0) this.select(i); });
     host.append(this.el);
     addEventListener('keydown', (e) => this.key(e));
     addEventListener('resize', () => { if (this.open && !this.busy) { this.measure(); this.layout(false); } });
   }
 
+  /** The pointer, while the hand is out. A card answers only when the pointer is on the hand itself: through something in
+   *  front of it (the bar, the filter, a card of the app's over the hand) nothing behind is pulled out, and a card
+   *  pulled out goes back. On a pulled-out card's own buttons it stays out. */
+  private onMove = (e: PointerEvent) => {
+    if (e.pointerType !== 'mouse' || !this.open) return;
+    const t = e.target as Element | null;
+    if (t?.closest('.fc-acts')) return;
+    if (t === this.el || t === this.veil || (t && this.handEl.contains(t))) this.hover(e.clientX, e.clientY);
+    else this.select(-1);
+  };
+
   /** Spread these (newest first) out of the pile whose top sheet is at `from` on screen. */
   show(papers: T[], from: DOMRect | null, fromDeg = 0) {
     if (this.open) this.clear();
+    removeEventListener('pointermove', this.onMove);
+    addEventListener('pointermove', this.onMove, { passive: true });
     this.given = papers.slice();
     this.from = from;
     this.fromDeg = fromDeg;
     this.shuffled = false;
+    this.filt = null;
+    this.drawFilterPill();
     this.order();
     this.hand = 0;
     this.open = true;
@@ -129,8 +172,16 @@ export class CardFan<T> {
   }
 
   /* ---------- the deck ---------- */
-  private order() {
-    const d = this.given.slice(), c = this.cfg;
+  private order(keepShuffle = false) {
+    const c = this.cfg, f = this.filt, fl = c.filter;
+    // what is still in the library (something may have been thrown away from the list meanwhile, or put back)
+    const live = fl ? new Set(fl.all().map((m) => c.id(m))) : null, here = (m: T) => !live || live.has(c.id(m));
+    const d = f && fl ? fl.all().filter((m) => (!f.g || f.g.test(m)) && (!f.q || matches(fl.words(m), f.q))) : this.given.filter(here);
+    if (keepShuffle && this.shuffled) {
+      const ids = new Set(d.map((m) => c.id(m))), kept = this.deck.filter((m) => ids.has(c.id(m))), had = new Set(kept.map((m) => c.id(m)));
+      this.deck = [...kept, ...d.filter((m) => !had.has(c.id(m)))];
+      return;
+    }
     if (this.sort === 'recent') d.sort((a, b) => c.readAt(b) - c.readAt(a));
     else if (this.sort === 'oldest') d.sort((a, b) => c.added(a) - c.added(b));
     else if (this.sort === 'title') d.sort((a, b) => BASE.compare(c.title(a), c.title(b)));
@@ -218,6 +269,8 @@ export class CardFan<T> {
     if (this.hand >= this.hands) { this.hand = this.hands - 1; this.measure(); }
     const g = this.g!, start = this.hand * this.perHand, list = this.deck.slice(start, start + g.n), gen = ++this.gen;
     this.sel = -1;
+    this.handEl.querySelector('.fan-none')?.remove();
+    if (!list.length) this.handEl.append(h('div', { class: 'fan-none' }, this.filt ? '没有这样的' + (this.cfg.unit === '本' ? '书' : '论文') + '。换个筛选，或者点「筛选」里的「全部」' : '这里是空的'));
     this.el.classList.remove('pointing');
     this.cards = list.map((m, i) => {
       const el = this.card(m, i);
@@ -298,6 +351,21 @@ export class CardFan<T> {
       face, h('span', { class: 'fc-title' }, title), h('span', { class: 'fc-meta' }, c.sub(m)));
     const badge = c.badge?.(m), prog = c.progress?.(m);
     if (badge) el.append(h('span', { class: 'fc-badge' }, badge));
+    if (c.tags || c.trash) {
+      const acts = h('span', { class: 'fc-acts' });
+      for (const t of ['pointerdown', 'pointerup', 'click', 'dblclick']) acts.addEventListener(t, (e) => e.stopPropagation());
+      if (c.tags) {
+        const b = h('button', { class: 'fc-act', type: 'button', title: '贴标签', html: ICONS.tag });
+        b.addEventListener('click', () => c.tags!(m, b.getBoundingClientRect(), b));
+        acts.append(b);
+      }
+      if (c.trash) acts.append(twice('', '确定扔掉？', async () => {
+        await c.trash!(m);
+        this.given = this.given.filter((x) => c.id(x) !== c.id(m));
+        this.refresh();
+      }, { cls: 'fc-act danger', title: '扔进垃圾桶（按两下）', html: ICONS.trash }));
+      el.append(acts);
+    }
     if (prog != null) el.append(h('span', { class: 'fc-prog', style: `--p:${Math.max(0, Math.min(1, prog)).toFixed(3)}` }));
     return el;
   }
@@ -332,7 +400,7 @@ export class CardFan<T> {
   private hover(x: number, y: number) { if (this.open && !this.busy) this.select(this.hit(x, y)); }
 
   private click(e: MouseEvent) {
-    if (this.el.querySelector('.fan-remove')) { this.el.querySelector('.fan-remove')!.remove(); return; }
+    if (this.swallow) { this.swallow = false; return; }
     if (!this.open || this.busy) return;
     const i = this.hit(e.clientX, e.clientY);
     if (i < 0) { this.close(); return; }
@@ -350,7 +418,7 @@ export class CardFan<T> {
     this.select(Math.max(0, Math.min(n - 1, (this.sel < 0 ? (d > 0 ? -1 : n) : this.sel) + d)));
   }
   private key(e: KeyboardEvent) {
-    if (!this.open) return;
+    if (!this.open || this.cfg.keysOff?.()) return;
     const k = e.key;
     if (k === 'Escape') { e.preventDefault(); this.close(); return; }
     if (this.busy) return;
@@ -359,32 +427,6 @@ export class CardFan<T> {
     else if ((k === 'Enter' || k === ' ') && this.sel >= 0) { e.preventDefault(); this.pick(this.sel); }
     else if (k === 'PageDown' || k === ']') { e.preventDefault(); this.turn(1); }
     else if (k === 'PageUp' || k === '[') { e.preventDefault(); this.turn(-1); }
-  }
-
-  /** Right-click a card: a little button over it to take it off (pressed twice: once to arm, once to do it). */
-  private askRemove(e: MouseEvent) {
-    e.preventDefault();
-    const rm = this.cfg.remove, i = this.hit(e.clientX, e.clientY), c = this.cards[i];
-    this.el.querySelector('.fan-remove')?.remove();
-    if (!rm || !c || this.busy) return;
-    this.select(i);
-    const b = h('button', { class: 'fan-remove', type: 'button', style: `left:${Math.round(e.clientX)}px;top:${Math.round(e.clientY)}px` }, rm.label) as HTMLButtonElement;
-    let armed = false;
-    b.addEventListener('pointerdown', (ev) => ev.stopPropagation());
-    b.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      if (!armed) { armed = true; b.textContent = rm.confirm; b.classList.add('armed'); return; }
-      b.disabled = true;
-      try {
-        await rm.run(c.m);
-        this.given = this.given.filter((x) => x !== c.m);
-        this.deck = this.deck.filter((x) => x !== c.m);
-        b.remove();
-        if (!this.deck.length) { this.close(); return; }
-        void this.collect('down').then(() => { if (this.open) this.deal('down'); });
-      } catch { b.textContent = '没删掉'; }
-    });
-    this.el.append(b);
   }
 
   private pick(i: number) {
@@ -403,7 +445,8 @@ export class CardFan<T> {
   /** Put the hand back on the pile (keep: a card that is not going back; taken: one was picked, the rest just go). */
   close(keep?: HTMLElement, taken = false) {
     if (!this.open) return;
-    this.el.querySelector('.fan-remove')?.remove();
+    removeEventListener('pointermove', this.onMove);
+    this.hideFilter();
     this.open = false;
     document.body.classList.remove('fan-open');
     this.busy = false;
@@ -422,34 +465,101 @@ export class CardFan<T> {
   }
 
   private clear() { this.cards = []; this.handEl.replaceChildren(); this.gen++; }
+
+  /** The library changed while the hand is out (something thrown away, put back or labelled, here or in the list over
+   *  the hand): the hand is dealt again if what it holds changed. */
+  refresh() {
+    if (!this.open) return;
+    const c = this.cfg, showing = this.cards.map((x) => c.id(x.m)).join('|');
+    this.order(true);
+    if (this.hand >= this.hands) this.hand = this.hands - 1;
+    this.updateBar();
+    if (this.busy) return;   // a hand is being dealt: it deals from the new deck
+    const start = this.hand * this.perHand, next = this.deck.slice(start, start + this.perHand).map((m) => c.id(m)).join('|');
+    if (showing === next) return;
+    void this.collect('down').then(() => { if (this.open) this.deal('down'); });
+  }
+
+  /* ---------- filtering the hand ---------- */
+  private drawFilterPill() {
+    const b = this.filterB;
+    if (!b) return;
+    const f = this.filt, label = f ? [f.g && f.g.key !== 'all' ? f.g.label : '', f.q ? `「${f.q}」` : ''].filter(Boolean).join(' ') : '';
+    b.replaceChildren(h('span', { class: 'fan-fi', html: ICONS.filter }), label ? `筛选：${label}` : '筛选');
+    b.classList.toggle('on', !!label);
+    b.setAttribute('aria-pressed', String(!!label));
+  }
+  private setFilter(g: Group<T> | null, q: string) {
+    const none = (!g || g.key === 'all') && !q;
+    this.filt = none ? null : { g: g && g.key !== 'all' ? g : null, q };
+    this.drawFilterPill();
+    this.shuffled = false;
+    this.order();
+    this.hand = 0;
+    void this.collect('down').then(() => { if (this.open) this.deal('down'); });
+  }
+  private toggleFilter() {
+    if (this.filterPop) { this.hideFilter(); return; }
+    const fl = this.cfg.filter;
+    if (!fl) return;
+    const sections = fl.sections(), cur = this.filt;
+    const q = h('input', { class: 'ff-q', type: 'search', placeholder: '搜标题、作者、#标签…', value: cur?.q || '', spellcheck: false, autocomplete: 'off' }) as HTMLInputElement;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => this.setFilter(this.filt?.g ?? null, q.value.trim()), 220); });
+    q.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); this.hideFilter(); } if (e.key === 'Enter') { e.preventDefault(); clearTimeout(t); this.setFilter(this.filt?.g ?? null, q.value.trim()); this.hideFilter(); } });
+    const groups = sections.flatMap((s) => [h('div', { class: 'ff-sec' }, s.title), ...s.groups.map((g) => {
+      const on = (cur?.g?.key ?? 'all') === g.key;
+      const b = h('button', { class: 'ff-grp' + (on ? ' on' : '') + (s.key === 'tag' && g.key !== 'tag:-' ? ' tag' : ''), type: 'button' }, h('span', {}, g.label), h('span', { class: 'ff-n' }, String(g.n)));
+      b.addEventListener('click', () => { this.setFilter(g, q.value.trim()); this.hideFilter(); });
+      return b;
+    })]);
+    const pop = h('div', { class: 'fan-filter' }, q, h('div', { class: 'ff-groups' }, ...groups));
+    for (const ev of ['pointerdown', 'pointerup', 'click', 'wheel']) pop.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
+    this.el.append(pop);
+    this.filterPop = pop;
+    const r = this.filterB!.getBoundingClientRect();
+    pop.style.left = `${Math.max(10, Math.min(innerWidth - 330, r.left + r.width / 2 - 160))}px`;
+    pop.style.bottom = `${innerHeight - r.top + 10}px`;
+    this.offPop = onPressOutside(pop, (x) => !!this.filterB?.contains(x), () => this.hideFilter());
+    setTimeout(() => q.focus({ preventScroll: true }), 30);
+  }
+  private hideFilter() {
+    this.offPop?.();
+    this.offPop = null;
+    this.filterPop?.remove();
+    this.filterPop = null;
+  }
 }
+
+/** What a fan can do with the library around its hand (all optional). */
+export type FanLibrary<T> = Partial<Pick<FanDeck<T>, 'tags' | 'trash' | 'filter' | 'organize' | 'bin' | 'keysOff'>>;
 
 /** The papers read so far (the piles). */
 export class PaperFan extends CardFan<PaperMeta> {
-  constructor(host: HTMLElement, thumb: (m: PaperMeta) => string | undefined, remove?: FanDeck<PaperMeta>['remove']) {
+  constructor(host: HTMLElement, thumb: (m: PaperMeta) => string | undefined, lib: FanLibrary<PaperMeta> = {}) {
     const readAt = (m: PaperMeta) => (m as PaperMeta & { openedAt?: number }).openedAt || m.addedAt || 0;
     super(host, {
-      name: '读过的论文', aspect: 1 / 1.414, thumb, readAt, added: readAt,
+      name: '读过的论文', id: (m) => m.id, aspect: 1 / 1.414, thumb, readAt, added: readAt,
       title: (m) => m.title, author: (m) => (m.authors || [])[0] || '', size: (m) => m.pages || 0,
       sub: (m) => [m.pages ? m.pages + ' 页' : '', m.notes ? `${m.notes} 条笔记` : ''].filter(Boolean).join(' · '),
       sorts: [['recent', '最近读的'], ['oldest', '最早读的'], ['title', '按标题'], ['size', '按页数']],
-      shuffleTitle: '洗一洗，随便抽一篇', unit: '篇', remove,
+      shuffleTitle: '洗一洗，随便抽一篇', unit: '篇', ...lib,
     });
   }
 }
 
-const FORMAT_LABEL: Record<string, string> = { epub: 'EPUB', mobi: 'MOBI', azw3: 'AZW3', txt: 'TXT', pdf: 'PDF', cbz: '漫画', fb2: 'FB2', html: 'HTML', md: 'MD' };
+export const FORMAT_LABEL: Record<string, string> = { epub: 'EPUB', mobi: 'MOBI', azw3: 'AZW3', txt: 'TXT', pdf: 'PDF', cbz: '漫画', fb2: 'FB2', html: 'HTML', md: 'MD' };
 /** The books on the desk's textbook (novels, comics, magazines). */
 export class BookFan extends CardFan<BookMeta> {
-  constructor(host: HTMLElement, cover: (m: BookMeta) => string | undefined, extra: FanDeck<BookMeta>['extra'], remove?: FanDeck<BookMeta>['remove']) {
+  constructor(host: HTMLElement, cover: (m: BookMeta) => string | undefined, extra: FanDeck<BookMeta>['extra'], lib: FanLibrary<BookMeta> = {}) {
     super(host, {
-      name: '书架上的读物', aspect: 2 / 3, thumb: cover,
+      name: '书架上的读物', id: (m) => m.id, aspect: 2 / 3, thumb: cover,
       readAt: (m) => m.openedAt || m.addedAt || 0, added: (m) => m.addedAt || 0,
       title: (m) => m.title, author: (m) => m.author || '', size: (m) => m.length || m.size || 0,
       sub: (m) => [m.author || '', m.progress ? `读到 ${Math.round(m.progress.percent * 100)}%` : '还没读'].filter(Boolean).join(' · '),
       progress: (m) => m.progress?.percent, badge: (m) => FORMAT_LABEL[m.format] || m.format.toUpperCase(),
       sorts: [['recent', '最近读的'], ['oldest', '最早放上的'], ['title', '按书名'], ['author', '按作者']],
-      shuffleTitle: '洗一洗，随便抽一本', unit: '本', extra, remove,
+      shuffleTitle: '洗一洗，随便抽一本', unit: '本', extra, ...lib,
     });
   }
 }

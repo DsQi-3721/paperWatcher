@@ -4,10 +4,13 @@ import { createHash } from 'node:crypto';
 import { constants as fsConstants, promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
 import { MetaCache } from './metacache.ts';
+import { cleanTags, Trash, type TrashMeta } from './trash.ts';
 
 export const ROOT = path.resolve(import.meta.dirname, '..');
 export const DATA_DIR = path.resolve(process.env.PW_DATA_DIR || path.join(ROOT, 'data'));
 export const PAPERS_DIR = path.join(DATA_DIR, 'papers');
+/** Papers and books taken off the desk (see trash.ts). */
+export const TRASH_DIR = path.join(DATA_DIR, 'trash');
 
 export interface PaperMeta {
   id: string;
@@ -24,6 +27,14 @@ export interface PaperMeta {
   view?: { layout?: string; x?: number; y?: number; z?: number };
   /** When the first-page thumbnail was saved (absent: none yet). */
   thumb?: number;
+  /** the student's own labels */
+  tags?: string[];
+  /** arXiv's primary category (cs.CL…) and the year it came out, when known */
+  field?: string;
+  year?: number;
+  /** in the bin: when it was thrown away, and when its files were cleared */
+  trashedAt?: number;
+  purgedAt?: number;
 }
 
 export interface Settings {
@@ -51,6 +62,8 @@ export function paperDir(id: string) {
 
 export async function ensureDirs() {
   await fs.mkdir(PAPERS_DIR, { recursive: true });
+  // papers in the bin past their days have their files cleared (the records stay)
+  void paperBin.list().catch(() => {});
 }
 
 async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
@@ -185,6 +198,9 @@ export function patchMeta(id: string, patch: Partial<PaperMeta>): Promise<PaperM
     const cur = await getMeta(id);
     if (!cur) return null;
     const next = { ...cur, ...patch, id: cur.id };
+    if ('tags' in patch) next.tags = cleanTags(patch.tags);
+    delete next.trashedAt;
+    delete next.purgedAt;
     // nothing new (the same view saved again, a notes save that kept the count): the file stays as it is
     if (JSON.stringify(next) !== JSON.stringify(cur)) await saveMetaUnlocked(next);
     return next;
@@ -200,8 +216,9 @@ export async function addPaper(buf: Buffer, info: Partial<PaperMeta>): Promise<P
 
 async function addPaperUnlocked(id: string, buf: Buffer, info: Partial<PaperMeta>): Promise<PaperMeta> {
   const dir = paperDir(id);
+  // a paper thrown away before and brought back: its record (title, tags, notes, where you were) comes back with it
+  const existing = (await getMeta(id)) || ((await paperBin.takeBack(id)) as PaperMeta | null);
   await fs.mkdir(dir, { recursive: true });
-  const existing = await getMeta(id);
   if (!existsSync(path.join(dir, 'paper.pdf'))) await writeFileAtomic(path.join(dir, 'paper.pdf'), buf);
   const meta: PaperMeta = {
     ...(existing || { addedAt: Date.now() }),
@@ -216,12 +233,93 @@ async function addPaperUnlocked(id: string, buf: Buffer, info: Partial<PaperMeta
   return meta;
 }
 
+/** Gone for good, with no record (a file that turned out not to be a paper). Taking a paper off the desk is
+ *  trashPaper. */
 export async function deletePaper(id: string) {
   try {
     await fs.rm(paperDir(id), { recursive: true, force: true });
   } finally {
     library.touch(id);
   }
+}
+
+/* ---------- the bin ---------- */
+const paperBin = new Trash(TRASH_DIR, 'papers', PAPERS_DIR, () => 'paper.pdf');
+
+/** Take a paper off the desk: into the bin, notes and all. */
+export function trashPaper(id: string): Promise<TrashMeta | null> {
+  paperDir(id);
+  return withLock('meta:' + id, async () => {
+    try { return await paperBin.put(id); } finally { library.touch(id); }
+  });
+}
+export const listPaperTrash = () => paperBin.list();
+export const purgePaper = (id: string) => withLock('meta:' + id, () => paperBin.purge(id));
+export const forgetPaper = (id: string) => withLock('meta:' + id, () => paperBin.forget(id));
+export const emptyPaperTrash = () => paperBin.empty();
+export const trashThumbPath = (id: string) => path.join(paperBin.itemDir(id), 'thumb.jpg');
+
+/** Put a paper back on the desk. If it was imported again meanwhile, the bin's notes and tags are added to it. */
+export function restorePaper(id: string) {
+  paperDir(id);
+  return withLock('meta:' + id, async () => {
+    try {
+      return await paperBin.restore(id, async (binDir, binMeta) => {
+        const live = await getMeta(id);
+        if (!live) return;
+        const notesOf = async (dir: string) => { try { return JSON.parse(await fs.readFile(path.join(dir, 'notes.json'), 'utf8')); } catch { return null; } };
+        const [mine, theirs] = await Promise.all([notesOf(paperDir(id)), notesOf(binDir)]);
+        if (Array.isArray(theirs?.annotations) && theirs.annotations.length) {
+          const have = new Set((mine?.annotations || []).map((a: any) => a.id));
+          const merged = { ...(mine || { version: 1 }), annotations: [...(mine?.annotations || []), ...theirs.annotations.filter((a: any) => !have.has(a.id))] };
+          await writeFileAtomic(path.join(paperDir(id), 'notes.json'), JSON.stringify(merged, null, 2));
+          live.notes = merged.annotations.length;
+        }
+        live.tags = cleanTags([...(live.tags || []), ...((binMeta.tags as string[]) || [])]);
+        await saveMetaUnlocked(live);
+      });
+    } finally { library.touch(id); }
+  });
+}
+
+/** Many papers at once: add or take off tags, or throw them away. */
+export async function batchPapers(ids: string[], op: 'tag' | 'untag' | 'trash', tags: string[] = []) {
+  const t = cleanTags(tags), lower = new Set(t.map((x) => x.toLowerCase()));
+  const out: Array<PaperMeta | TrashMeta | null> = [];
+  for (const id of ids) {
+    if (!ID_RE.test(id)) continue;
+    if (op === 'trash') { out.push(await trashPaper(id)); continue; }
+    const cur = await getMeta(id);
+    if (!cur) continue;
+    const have = cur.tags || [];
+    out.push(await patchMeta(id, { tags: op === 'tag' ? [...have, ...t] : have.filter((x) => !lower.has(x.toLowerCase())) }));
+  }
+  return out.filter(Boolean);
+}
+
+/** Papers whose text has every word asked for (their paper.txt, as the agents read it), with a line round the first
+ *  one. Read on request only, a few files at a time; stops after `limit` hits. */
+export async function searchPaperText(q: string, limit = 200): Promise<Array<{ id: string; snippet: string; hits: number }>> {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+  if (!words.length) return [];
+  const papers = await library.list(), out: Array<{ id: string; snippet: string; hits: number }> = [];
+  let i = 0;
+  const one = async () => {
+    while (i < papers.length && out.length < limit) {
+      const m = papers[i++];
+      let text: string;
+      try { text = await fs.readFile(path.join(paperDir(m.id), 'paper.txt'), 'utf8'); } catch { continue; }
+      const low = text.toLowerCase();
+      if (!words.every((w) => low.includes(w))) continue;
+      const at = low.indexOf(words[0]);
+      let hits = 0;
+      for (let k = low.indexOf(words[0]); k >= 0 && hits < 999; k = low.indexOf(words[0], k + words[0].length)) hits++;
+      const snippet = text.slice(Math.max(0, at - 50), at + words[0].length + 70).replace(/\s+/g, ' ').trim();
+      out.push({ id: m.id, snippet, hits });
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, one));
+  return out;
 }
 
 /** Missing notes are an empty notebook; a damaged file is an error (never silently replaced by nothing). */

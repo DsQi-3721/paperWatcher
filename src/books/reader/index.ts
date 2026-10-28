@@ -129,6 +129,7 @@ export class BookReader {
     this.bmBtn = btn('书签', '在这一页加书签 / 取消（M）', () => this.toggleBookmark(), 'bm');
     this.top = h('div', { class: 'bk-top', 'data-edge': 'top' },
       btn('‹ 书桌', '回到书桌（B）', () => this.cb.onClose(), 'back'),
+      ...(cb.onShelf ? [btn('书架', '书架：换一本读、整理、垃圾桶（L）', () => cb.onShelf!(), 'shelf')] : []),
       h('div', { class: 'bk-title' }, h('span', { class: 'bk-t-book' }, doc.title || meta.title), this.titleChap),
       h('div', { class: 'bk-tools' },
         btn('目录', '目录与书签（T）', () => this.togglePanel('toc')),
@@ -1084,7 +1085,7 @@ export class BookReader {
   private swallowClick = false;
 
   private onKey = (e: KeyboardEvent) => {
-    if (!this.opened || this.destroyed || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!this.opened || this.destroyed || e.metaKey || e.ctrlKey || e.altKey || this.cb.keysOff?.()) return;
     // typing in a text field (the search box) keeps its keys; a slider or a button does not
     const t = e.target as HTMLElement, typing = !!t && (t.isContentEditable || /textarea|select/i.test(t.tagName)
       || (t.tagName === 'INPUT' && !/^(range|checkbox|radio|button|submit)$/i.test((t as HTMLInputElement).type)));
@@ -1104,6 +1105,7 @@ export class BookReader {
     else if (k === '/') this.togglePanel('search');
     else if (k === 'm' || k === 'M') this.toggleBookmark();
     else if (k === 'b' || k === 'B') this.cb.onClose();
+    else if ((k === 'l' || k === 'L') && this.cb.onShelf) this.cb.onShelf();
     else if (k === 'f' || k === 'F') this.cb.ambience.setImmersive(!this.cb.ambience.immersive());
     else if (k === '=' || k === '+') this.bumpSize(1);
     else if (k === '-') this.bumpSize(-1);

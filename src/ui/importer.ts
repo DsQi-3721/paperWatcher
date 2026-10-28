@@ -9,7 +9,6 @@ import { ICONS } from './icons';
 export interface ImporterHost {
   open(meta: PaperMeta, via: 'url' | 'file' | 'library'): void;
   toast(msg: string, kind?: 'info' | 'error' | 'ok'): void;
-  deletePaper(meta: PaperMeta): Promise<void>;
   /** e-book files dropped on the window (they go on the textbook's shelf) */
   books?: (files: File[]) => void;
 }

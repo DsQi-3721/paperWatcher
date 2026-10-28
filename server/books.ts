@@ -6,7 +6,8 @@ import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { ByteSink } from './http.ts';
 import { MetaCache } from './metacache.ts';
-import { DATA_DIR, writeFileAtomic, writeJsonFile } from './store.ts';
+import { DATA_DIR, TRASH_DIR, writeFileAtomic, writeJsonFile } from './store.ts';
+import { cleanTags, Trash, type TrashMeta } from './trash.ts';
 
 export const BOOKS_DIR = path.join(DATA_DIR, 'books');
 export const BOOK_FORMATS = ['epub', 'mobi', 'azw3', 'txt', 'pdf', 'cbz', 'fb2', 'html', 'md'] as const;
@@ -29,6 +30,11 @@ export interface BookMeta {
   progress?: { chapter: number; offset: number; percent: number; at: number };
   bookmarks?: Array<{ chapter: number; offset: number; text: string; at: number }>;
   length?: number;
+  /** the student's own labels */
+  tags?: string[];
+  /** in the bin: when it was thrown away, and when its file was cleared */
+  trashedAt?: number;
+  purgedAt?: number;
 }
 
 const ID_RE = /^[a-f0-9]{8,64}$/;
@@ -80,7 +86,11 @@ export function sniffFormat(buf: Buffer, name = ''): BookFormat | null {
   return head.includes(0) && !(head[0] === 0xff && head[1] === 0xfe) && !(head[0] === 0xfe && head[1] === 0xff) ? null : 'txt';
 }
 
-export async function ensureBooksDir() { await fs.mkdir(BOOKS_DIR, { recursive: true }); }
+export async function ensureBooksDir() {
+  await fs.mkdir(BOOKS_DIR, { recursive: true });
+  // books in the bin past their days have their files cleared (the records stay)
+  void bookBin.list().catch(() => {});
+}
 
 /** Every book with a meta.json and its file, the last read first (kept in memory, see metacache.ts). */
 const shelf = new MetaCache<BookMeta>({
@@ -102,8 +112,9 @@ export async function addBook(buf: Buffer, info: { fileName?: string; sourceUrl?
   const id = createHash('sha256').update(buf).digest('hex').slice(0, 16);
   return withLock('book:' + id, async () => {
     const dir = bookDir(id);
+    // a book thrown away before and brought back: its record (where you were, bookmarks, tags, cover) comes back too
+    const old = (await getBook(id)) || ((await bookBin.takeBack(id)) as BookMeta | null);
     await fs.mkdir(dir, { recursive: true });
-    const old = await getBook(id);
     const file = path.join(dir, 'book.' + format);
     if (!existsSync(file)) await writeFileAtomic(file, buf);
     const base = (info.fileName || '').replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').trim();
@@ -127,17 +138,71 @@ export function patchBook(id: string, patch: Partial<BookMeta>): Promise<BookMet
   return withLock('book:' + id, async () => {
     const cur = await getBook(id);
     if (!cur) return null;
-    const allowed: Array<keyof BookMeta> = ['title', 'author', 'kind', 'lang', 'openedAt', 'color', 'progress', 'bookmarks', 'length'];
+    const allowed: Array<keyof BookMeta> = ['title', 'author', 'kind', 'lang', 'openedAt', 'color', 'progress', 'bookmarks', 'length', 'tags'];
     const next = { ...cur };
     for (const k of allowed) if (k in patch) (next as any)[k] = (patch as any)[k];
+    if ('tags' in patch) next.tags = cleanTags(patch.tags);
     // nothing new (the same place saved again): the file stays as it is
     if (JSON.stringify(next) !== JSON.stringify(cur)) await saveBookMeta(id, next);
     return next;
   });
 }
 
+/** Gone for good, with no record (a file that turned out not to be a book). Taking a book off the shelf is
+ *  trashBook. */
 export async function deleteBook(id: string) {
   try { await fs.rm(bookDir(id), { recursive: true, force: true }); } finally { shelf.touch(id); }
+}
+
+/* ---------- the bin ---------- */
+const bookBin = new Trash(TRASH_DIR, 'books', BOOKS_DIR, (m: BookMeta) => 'book.' + m.format);
+
+/** Take a book off the shelf: into the bin, with where you were and its bookmarks. */
+export function trashBook(id: string): Promise<TrashMeta | null> {
+  bookDir(id);
+  return withLock('book:' + id, async () => {
+    try { return await bookBin.put(id); } finally { shelf.touch(id); }
+  });
+}
+export const listBookTrash = () => bookBin.list();
+export const purgeBook = (id: string) => withLock('book:' + id, () => bookBin.purge(id));
+export const forgetBook = (id: string) => withLock('book:' + id, () => bookBin.forget(id));
+export const emptyBookTrash = () => bookBin.empty();
+export const trashCoverPath = (id: string) => path.join(bookBin.itemDir(id), 'cover.jpg');
+
+/** Put a book back on the shelf. If it was imported again meanwhile, the bin's bookmarks, tags and the further of the
+ *  two places read to are added to it. */
+export function restoreBook(id: string) {
+  bookDir(id);
+  return withLock('book:' + id, async () => {
+    try {
+      return await bookBin.restore(id, async (_dir, bin) => {
+        const live = await getBook(id);
+        if (!live) return;
+        const b = bin as unknown as BookMeta;
+        const marks = [...(live.bookmarks || [])];
+        for (const x of b.bookmarks || []) if (!marks.some((y) => y.chapter === x.chapter && y.offset === x.offset)) marks.push(x);
+        const next: BookMeta = { ...live, bookmarks: marks, tags: cleanTags([...(live.tags || []), ...(b.tags || [])]) };
+        if (b.progress && (!live.progress || b.progress.at > live.progress.at)) next.progress = b.progress;
+        await saveBookMeta(id, next);
+      });
+    } finally { shelf.touch(id); }
+  });
+}
+
+/** Many books at once: add or take off tags, or throw them away. */
+export async function batchBooks(ids: string[], op: 'tag' | 'untag' | 'trash', tags: string[] = []) {
+  const t = cleanTags(tags), lower = new Set(t.map((x) => x.toLowerCase()));
+  const out: Array<BookMeta | TrashMeta | null> = [];
+  for (const id of ids) {
+    if (!ID_RE.test(id)) continue;
+    if (op === 'trash') { out.push(await trashBook(id)); continue; }
+    const cur = await getBook(id);
+    if (!cur) continue;
+    const have = cur.tags || [];
+    out.push(await patchBook(id, { tags: op === 'tag' ? [...have, ...t] : have.filter((x) => !lower.has(x.toLowerCase())) }));
+  }
+  return out.filter(Boolean);
 }
 
 export async function writeCover(id: string, buf: Buffer) {

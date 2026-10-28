@@ -15,6 +15,14 @@ export interface PaperMeta {
   view?: { layout?: LayoutMode; x?: number; y?: number; z?: number };
   /** When the first-page thumbnail was saved (absent: none yet). */
   thumb?: number;
+  /** the student's own labels */
+  tags?: string[];
+  /** arXiv's primary category (cs.CL…) and the year it came out, when known */
+  field?: string;
+  year?: number;
+  /** in the bin: when it was thrown away, and when its files were cleared */
+  trashedAt?: number;
+  purgedAt?: number;
 }
 
 export type Provider = 'claude' | 'codex' | 'openai';

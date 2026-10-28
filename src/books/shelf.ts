@@ -60,7 +60,6 @@ export class Shelf {
     return meta;
   }
 
-  async remove(id: string) { await api.deleteBook(id); await this.refresh(); }
 
   /* ---------- where a book was left, and the reader's settings ---------- */
   saveProgress(id: string, p: BookProgress) {

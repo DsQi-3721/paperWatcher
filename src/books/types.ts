@@ -25,6 +25,11 @@ export interface BookMeta {
   bookmarks?: Bookmark[];
   /** characters of text (flow) or pages (fixed), for progress and the fan */
   length?: number;
+  /** the student's own labels */
+  tags?: string[];
+  /** in the bin: when it was thrown away, and when its file was cleared */
+  trashedAt?: number;
+  purgedAt?: number;
 }
 
 /** Where the reader is, independent of font size and page width. */
@@ -143,6 +148,10 @@ export interface ReaderHost {
   onBookmarks(b: Bookmark[]): void;
   /** back to the desk (the reader's back button, B or Esc with nothing open) */
   onClose(): void;
+  /** the shelf: every book, to read another one, sort them out, the bin (the reader's 书架 button, or L) */
+  onShelf?(): void;
+  /** a card of the app's is open over the book (the shelf, a tag card): its keys are not the reader's */
+  keysOff?(): boolean;
   /** the reading light and the immersive mode (shared with papers): a panel to put in the settings, and the toggle */
   ambience: { panel(): HTMLElement; immersive(): boolean; setImmersive(on: boolean): void };
 }

@@ -2,7 +2,7 @@
 // of papers read so far. When a paper is opened the camera turns straight down, close over the blank sheet, and the
 // scene stays as the still backdrop of the reading desk; going home turns it back to where you were.
 import { loadLook } from '../ui/desksettings';
-import { PaperFan } from '../ui/fan';
+import { PaperFan, type FanLibrary } from '../ui/fan';
 import { ObjMenu } from '../ui/objmenu';
 import type { PaperMeta } from '../types';
 import { OrbitInput } from './orbit';
@@ -27,15 +27,13 @@ export class DeskHome {
   onUserMove?: () => void;
   /** The textbook was clicked: the reading shelf. */
   onShelf?: () => void;
-  /** A paper taken off its pile for good (from the fan). */
-  onRemovePaper?: (m: PaperMeta) => Promise<void>;
   private homeView: View | null = null;
 
-  constructor(stage: HTMLElement, hud: HTMLElement, thumb: (m: PaperMeta) => string | undefined) {
+  constructor(stage: HTMLElement, hud: HTMLElement, thumb: (m: PaperMeta) => string | undefined, fanLib: FanLibrary<PaperMeta> = {}) {
     this.scene = new DeskScene(stage);
     this.scene.look = loadLook();
     this.menu = new ObjMenu(hud, this.scene);
-    this.fan = new PaperFan(hud, thumb, { label: '从纸堆拿走', confirm: '确定删掉？笔记也会一起删除', run: async (m) => { await this.onRemovePaper?.(m); } });
+    this.fan = new PaperFan(hud, thumb, fanLib);
     this.orbit = new OrbitInput(this.scene, this.scene.el);
     this.scene.onFlash = (o, t, ms) => this.menu.flash(o, t, ms);
     this.scene.onRendered = () => this.menu.place();

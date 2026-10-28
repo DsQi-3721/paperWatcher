@@ -10,7 +10,7 @@ import { BookFan } from './ui/fan';
 import { BookImport } from './ui/bookimport';
 import { Shelf } from './books/shelf';
 import { BookReader } from './books/reader/index';
-import { parseBook } from './books/formats/index';
+import { BOOK_ACCEPT, parseBook } from './books/formats/index';
 import type { BookDoc, BookMeta } from './books/types';
 import { DeskHome } from './scene/home';
 import type { PileMeta } from './scene/piles.js';
@@ -34,7 +34,11 @@ import { inflate, unionAll, type Pt, type Rect } from './util/geom';
 import { Rng } from './util/rng';
 import { ICONS } from './ui/icons';
 import { Importer } from './ui/importer';
-import { PaperShelf } from './ui/papershelf';
+import { LibraryCard, type LibraryHost } from './ui/library';
+import { TagEditor } from './ui/tagedit';
+import { bookLibrary, paperLibrary } from './library/configs';
+import { bookSections, bookWords, paperSections, paperWords, tagCounts } from './library/facets';
+import type { LibKind } from './api';
 import { NotesList } from './ui/noteslist';
 import { Selbar } from './ui/selbar';
 import { SettingsCard } from './ui/settings';
@@ -112,8 +116,12 @@ export class App {
   shelf = new Shelf();
   private bookImport!: BookImport;
   private bookFan!: BookFan;
-  /** the shelf of papers, while reading (the little pile of papers, top left) */
-  private paperShelf!: PaperShelf;
+  /** the libraries on a card (the little pile of papers while reading, the book reader's 书架, the fans' 整理) */
+  private paperLib!: LibraryCard<PaperMeta>;
+  private bookLib!: LibraryCard<BookMeta>;
+  private tagEditor!: TagEditor;
+  /** a paper being brought back from the bin's records (to tell if the download was another version) */
+  private reimporting: PaperMeta | null = null;
   private booksLayer!: HTMLDivElement;
   /** the book open now, if any */
   book: { reader: BookReader; meta: BookMeta; doc: BookDoc } | null = null;
@@ -142,7 +150,14 @@ export class App {
     this.desk = new Desk(root, delegate);
     this.hud = h('div', { id: 'hud' });
     root.append(this.hud);
-    this.home = new DeskHome(this.desk.stage, this.hud, (m) => (m.thumb ? api.thumbUrl(m) : undefined));
+    this.home = new DeskHome(this.desk.stage, this.hud, (m) => (m.thumb ? api.thumbUrl(m) : undefined), {
+      tags: (m, at, from) => this.editTags('papers', [m], at, from),
+      trash: (m) => this.trash('papers', [m]),
+      filter: { sections: () => paperSections(this.papers), all: () => this.papers, words: paperWords },
+      organize: () => this.toggleLibrary('papers'),
+      bin: () => this.toggleBin('papers'),
+      keysOff: () => this.paperLib.open || this.tagEditor.open,
+    });
     this.ambience = new Ambience(this.home.scene.el);
     this.booksLayer = h('div', { class: 'books-layer' });
     root.insertBefore(this.booksLayer, this.hud);
@@ -150,14 +165,16 @@ export class App {
     this.bookImport.onRead = (m) => { void this.openBook(m); };
     this.bookFan = new BookFan(this.hud, (m) => this.shelf.coverUrl(m), [
       { label: '＋ 导入读物', title: '把小说、漫画、杂志放上书架', cls: 'add', on: () => { this.bookFan.close(); this.bookImport.show(); } },
-    ], { label: '移出书架', confirm: '确定移出？书签和进度也会删除', run: (m) => this.shelf.remove(m.id) });
-    this.home.onRemovePaper = async (m) => {
-      await api.deletePaper(m.id);
-      this.papers = await api.papers().catch(() => [] as PaperMeta[]);
-      this.home.setPapers(this.papers, this.thumb);
-    };
+    ], {
+      tags: (m, at, from) => this.editTags('books', [m], at, from),
+      trash: (m) => this.trash('books', [m]),
+      filter: { sections: () => bookSections(this.shelf.books), all: () => this.shelf.books, words: bookWords },
+      organize: () => this.toggleLibrary('books'),
+      bin: () => this.toggleBin('books'),
+      keysOff: () => this.bookLib.open || this.tagEditor.open,
+    });
     this.bookFan.onPick = (m) => { void this.openBook(m); };
-    this.shelf.onChange = () => this.updateTextbook();
+    this.shelf.onChange = () => { this.updateTextbook(); this.bookLib?.update(this.shelf.books); };
     // the textbook: the shelf, fanned out like the paper piles (or the import card, while the shelf is empty)
     this.home.onShelf = async () => {
       this.importer.hide();
@@ -232,7 +249,6 @@ export class App {
       books: (files) => { if (!this.book && !this.reader) void this.bookImport.addFiles(files); else this.toasts.show('先回到书桌，再把书放上书架'); },
       open: (m, via) => this.openPaper(m, via),
       toast: (m, k) => this.toasts.show(m, k),
-      deletePaper: (m) => this.deletePaper(m),
     });
     this.settingsCard = new SettingsCard(this.hud, (m, k) => this.toasts.show(m, k));
     this.settingsCard.onChange = (st) => { this.settings = st; this.updateLamp(); };
@@ -324,7 +340,8 @@ export class App {
       if (this.settingsCard.open) this.settingsCard.hide();
       if (this.notesList.open) this.notesList.hide();
       if (this.toc.open) this.toc.hide();
-      this.paperShelf.hide();
+      this.paperLib.hide();
+      this.tagEditor.close();
       this.helpCard.classList.remove('on');
       this.ambienceCard.classList.remove('on');
       this.ambience.setReading(false);
@@ -409,14 +426,24 @@ export class App {
   async openPaper(meta: PaperMeta, via: 'url' | 'file' | 'library') {
     if (this.transitioning) return;
     if (this.arrange?.on) this.arrange.exit();
+    this.home.fan.close();
+    this.bookFan.close();
     const seq = ++this.openSeq;
     this.importer.hide();
     this.selection.clear();
     this.selbar.hide();
     this.preview.hide();
     this.notes.close(false);
-    this.paperShelf.hide();
+    this.paperLib.hide();
+    this.tagEditor.close();
     document.body.classList.add('opening');
+    // brought back from the bin's records but downloaded as another version: its old record (notes) stays in the bin
+    const back = this.reimporting;
+    this.reimporting = null;
+    if (back && via !== 'library' && back.id !== meta.id) {
+      if (back.tags?.length) void api.patchMeta(meta.id, { tags: [...(meta.tags || []), ...back.tags] }).catch(() => {});
+      this.toasts.show('下载到的是另一个版本：标签带过来了，旧的笔记还在垃圾桶的记录里', 'info', 6000);
+    }
     // the paper is fetched and opened while the one on the desk (if any) clears away; that one keeps where you were
     const opening = PaperDoc.open(meta);
     opening.catch(() => { /* reported below */ });
@@ -502,11 +529,14 @@ export class App {
 
   /** Open a book from the shelf: the camera turns down onto the desk, which goes soft, and the book comes up out of
    *  the textbook into its pages. */
-  async openBook(meta: BookMeta) {
+  async openBook(meta: BookMeta, opts: { switching?: boolean } = {}) {
     if (this.transitioning || this.book || this.reader) return;
     if (this.arrange?.on) this.arrange.exit();
+    this.home.fan.close();
+    this.bookFan.close();
     this.transitioning = true;
-    const from = this.home.scene.textbookQuad();
+    // a book read instead of another (from the 书架) comes up where the other was; from the desk, out of the textbook
+    const from = opts.switching ? null : this.home.scene.textbookQuad();
     let doc: BookDoc | null = null;
     try {
       this.importer.hide();
@@ -523,6 +553,8 @@ export class App {
         onSettings: (st) => this.shelf.saveSettings(st),
         onBookmarks: (b) => this.shelf.saveBookmarks(meta.id, b),
         onClose: () => { void this.closeBook(); },
+        onShelf: () => this.toggleLibrary('books'),
+        keysOff: () => this.bookLib.open || this.tagEditor.open || this.bookImport.open,
         ambience: { panel: () => this.ambience.panel(), immersive: () => this.ambience.immersive, setImmersive: (on) => this.ambience.setImmersive(on) },
       });
       this.book = { reader, meta, doc };
@@ -541,6 +573,8 @@ export class App {
           { transformOrigin: `${to.x}px ${to.y}px`, transform: `translate(${from.rect.x - to.x}px, ${from.rect.y - to.y}px) scale(${sx}, ${sy})`, opacity: 0.4 },
           { transformOrigin: `${to.x}px ${to.y}px`, transform: 'none', opacity: 1 },
         ], { duration: 560, easing: 'cubic-bezier(.3, .9, .3, 1)' });
+      } else if (opts.switching) {
+        this.booksLayer.animate([{ opacity: 0, transform: 'translateY(18px) scale(.985)' }, { opacity: 1, transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.3, .9, .3, 1)' });
       }
       await turned;
       this.ambience.setReading(true);
@@ -557,6 +591,25 @@ export class App {
     } finally {
       this.transitioning = false;
     }
+  }
+
+  /** Read another book from the 书架 without going back to the desk: where you were in this one is kept, its pages
+   *  slip away and the other book comes up in their place. */
+  private async switchBook(meta: BookMeta) {
+    const b = this.book;
+    if (!b || b.meta.id === meta.id || this.transitioning) return;
+    this.transitioning = true;
+    try {
+      this.bookLib.hide();
+      await this.shelf.flush(b.meta.id);
+      await this.booksLayer.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(14px) scale(.985)' }], { duration: 200, easing: 'ease-in', fill: 'forwards' }).finished.catch(() => {});
+      b.reader.destroy();
+      this.book = null;
+      for (const a of this.booksLayer.getAnimations()) a.cancel();
+    } finally {
+      this.transitioning = false;
+    }
+    await this.openBook(meta, { switching: true });
   }
 
   /** Back to the desk: the book goes back into the textbook as the camera turns back up; the textbook now wears it. */
@@ -595,20 +648,6 @@ export class App {
     this.meta = null;
     this.figures = new Map();
     this.figJobs.clear();
-  }
-
-  private async deletePaper(m: PaperMeta) {
-    const wasOpen = this.meta?.id === m.id;
-    if (wasOpen) this.closePaper();
-    await api.deletePaper(m.id);
-    this.toasts.show('从桌上拿走了');
-    if (wasOpen) { await this.showHome(); return; }
-    if (!this.reader) {
-      const papers = await api.papers().catch(() => [] as PaperMeta[]);
-      if (this.reader) return;
-      this.papers = papers;
-      this.home.setPapers(papers, this.thumb);
-    }
   }
 
   private prepareText(seq: number) {
@@ -1001,18 +1040,20 @@ export class App {
     ttApp.addEventListener('click', (e) => { e.stopPropagation(); void this.goHome(); });
     ttPaper.addEventListener('click', (e) => { e.stopPropagation(); void this.toggleToc(); });
     this.titleTag = h('div', { class: 'title-tape' }, ttApp, ttPaper);
-    const envelope = deskButton('envelope', '放一篇论文上桌', () => { this.paperShelf.hide(); this.toc.hide(); this.importer.toggle('top'); });
-    const shelfBtn = deskButton('papers', '书架：换一篇读 (L)', () => this.toggleShelf(), 'paper-only');
+    const envelope = deskButton('envelope', '放一篇论文上桌', () => { this.paperLib.hide(); this.toc.hide(); this.importer.toggle('top'); });
+    const shelfBtn = deskButton('papers', '论文书架：换一篇读、整理、垃圾桶 (L)', () => this.toggleLibrary('papers'), 'paper-only');
     const tl = h('div', { class: 'hud-tl' }, this.titleTag,
       h('div', { class: 'dobj-row' },
         envelope,
         shelfBtn,
         deskButton('books', '回到书桌 (B)', () => { void this.goHome(); }, 'books paper-only'),
       ));
-    this.paperShelf = new PaperShelf(this.hud, (m) => (m.thumb ? api.thumbUrl(m) : undefined));
-    this.paperShelf.trigger = shelfBtn;
-    this.paperShelf.onPick = (m) => this.switchPaper(m);
-    this.paperShelf.onImport = () => { this.toc.hide(); void this.importer.show('top'); };
+    this.tagEditor = new TagEditor(this.hud);
+    this.paperLib = new LibraryCard<PaperMeta>(this.hud, paperLibrary(), this.libraryHost('papers') as LibraryHost<PaperMeta>, this.tagEditor);
+    this.bookLib = new LibraryCard<BookMeta>(this.hud, bookLibrary((m) => this.shelf.coverUrl(m)), this.libraryHost('books') as LibraryHost<BookMeta>, this.tagEditor);
+    // what opens them toggles them (a press on one is not a press outside the card)
+    this.paperLib.triggers = [shelfBtn, '.fan.on .fan-pill.organize', '.fan.on .fan-pill.bin'];
+    this.bookLib.triggers = ['.bk-btn.shelf', '.fan.on .fan-pill.organize', '.fan.on .fan-pill.bin'];
     // top-right: reading glasses (the reading light), lamp (AI), sticky pad (notes), folder (export), help
     this.lamp = deskButton('lamp', 'AI 阅读伙伴', () => this.settingsCard.toggle(), 'lamp');
     const glassesClose = h('button', { class: 'card-close', type: 'button', html: ICONS.close, title: '收起' });
@@ -1147,20 +1188,183 @@ export class App {
   private async toggleToc() {
     if (this.toc.open) { this.toc.hide(); return; }
     if (!this.doc || !this.reader) return;
-    this.paperShelf.hide();
+    this.paperLib.hide();
     this.importer.hide();
     this.toc.show(await this.doc.sections(), this.reader.currentPage());
   }
 
-  /** The shelf of papers (the little pile, top left, or L): every paper on the desk, to read another one in place.
-   *  It opens at once on the list already known and takes a fresher one from the server if anything changed. */
-  private toggleShelf() {
-    if (this.paperShelf.open) { this.paperShelf.hide(); return; }
-    if (!this.reader) return;
+  /* ---------------- the libraries: finding, sorting out, the bin ---------------- */
+
+  /** A library's card: open it (on the desk, while reading a paper, while reading a book), or close it if open. */
+  private toggleLibrary(kind: LibKind) {
+    const lib = kind === 'papers' ? this.paperLib : this.bookLib;
+    if (lib.open) { lib.hide(); return; }
+    this.showLibrary(kind);
+  }
+  /** The bin's button (in a fan): the card straight into the bin, or put away if it shows the bin already. */
+  private toggleBin(kind: LibKind) {
+    const lib = kind === 'papers' ? this.paperLib : this.bookLib;
+    if (lib.open && lib.inBin) { lib.hide(); return; }
+    this.showLibrary(kind, { bin: true });
+  }
+  private showLibrary(kind: LibKind, opts: { bin?: boolean } = {}) {
     this.importer.hide();
     this.toc.hide();
-    this.paperShelf.show(this.papers, this.meta?.id ?? null);
-    void api.papers().then((fresh) => { this.papers = fresh; this.paperShelf.update(fresh); }).catch(() => {});
+    this.bookImport.hide();
+    (kind === 'papers' ? this.bookLib : this.paperLib).hide();
+    (kind === 'papers' ? this.paperLib : this.bookLib).show(opts);
+  }
+
+  /** What a library card (and a fan) can do, for papers or books. */
+  private libraryHost(kind: LibKind): LibraryHost<PaperMeta> | LibraryHost<BookMeta> {
+    const lib = () => (kind === 'papers' ? this.paperLib : this.bookLib) as LibraryCard<any>;
+    const common = {
+      setTags: (ids: string[], op: 'tag' | 'untag', tags: string[]) => this.setTags(kind, ids, op, tags),
+      bin: () => api.trash<any>(kind),
+      binPic: (m: any) => (kind === 'papers' ? m.thumb : m.cover) ? `${api.trashPicUrl(kind, m.id)}?v=${kind === 'papers' ? m.thumb : m.cover}` : undefined,
+      restore: (m: any) => this.restoreFromBin(kind, m),
+      purge: async (m: any) => { await api.purge(kind, m.id); lib().update(); },
+      forget: async (m: any) => { await api.forget(kind, m.id); lib().update(); },
+      emptyBin: async () => { const r = await api.emptyTrash(kind); lib().update(); this.toasts.show(r.cleared ? `清除了 ${r.cleared} ${kind === 'papers' ? '篇' : '本'}的文件，记录都还在` : '垃圾桶里没有要清除的文件'); return r.cleared; },
+    };
+    if (kind === 'papers') return {
+      ...common,
+      list: () => this.papers,
+      refresh: async () => { this.papers = await api.papers(); return this.papers; },
+      current: () => this.meta?.id ?? null,
+      pick: (m: PaperMeta) => { if (this.reader) this.switchPaper(m); else void this.openPaper(m, 'library'); },
+      trash: (items: PaperMeta[]) => this.trash('papers', items),
+      reimport: (m: PaperMeta) => this.reimportPaper(m),
+      importNew: () => { this.home.fan.close(); void this.importer.show(this.reader ? 'top' : 'corner'); },
+    } as LibraryHost<PaperMeta>;
+    return {
+      ...common,
+      list: () => this.shelf.books,
+      refresh: () => this.shelf.refresh(),
+      current: () => this.book?.meta.id ?? null,
+      pick: (m: BookMeta) => { if (this.book) void this.switchBook(m); else void this.openBook(m); },
+      trash: (items: BookMeta[]) => this.trash('books', items),
+      reimport: (m: BookMeta) => this.reimportBook(m),
+      importNew: () => { this.bookFan.close(); this.bookImport.show(); },
+    } as LibraryHost<BookMeta>;
+  }
+
+  /** Tags on or off, for one or many; the lists follow. */
+  private async setTags(kind: LibKind, ids: string[], op: 'tag' | 'untag', tags: string[]) {
+    const got = await api.batch<any>(kind, ids, op, tags);
+    const by = new Map(got.map((m: any) => [m.id, m.tags || []]));
+    if (kind === 'papers') {
+      this.papers = this.papers.map((m) => (by.has(m.id) ? { ...m, tags: by.get(m.id) } : m));
+      if (this.meta && by.has(this.meta.id)) this.meta.tags = by.get(this.meta.id);
+    } else {
+      for (const m of this.shelf.books) if (by.has(m.id)) m.tags = by.get(m.id);
+      if (this.book && by.has(this.book.meta.id)) this.book.meta.tags = by.get(this.book.meta.id);
+    }
+    this.libraryChanged(kind);
+  }
+
+  /** A library changed (labelled, thrown away, put back): its card and an open fan follow. */
+  private libraryChanged(kind: LibKind) {
+    if (kind === 'papers') { this.paperLib.update(this.papers); this.home.fan.refresh(); }
+    else { this.bookLib.update([...this.shelf.books]); this.bookFan.refresh(); }
+  }
+
+  /** The tag card for things in a fan. */
+  private editTags(kind: LibKind, items: Array<PaperMeta | BookMeta>, at: DOMRect, from: HTMLElement) {
+    const all: Array<PaperMeta | BookMeta> = kind === 'papers' ? this.papers : this.shelf.books;
+    const m = items[0], cfg = kind === 'papers' ? paperLibrary() : null;
+    this.tagEditor.show(at, {
+      title: `标签 · ${m.title}`,
+      current: [...(all.find((x) => x.id === m.id)?.tags || m.tags || [])],
+      known: tagCounts(all, (x) => x.tags),
+      suggest: cfg?.suggest?.(m as PaperMeta),
+      add: (t) => this.setTags(kind, items.map((x) => x.id), 'tag', [t]),
+      remove: (t) => this.setTags(kind, items.map((x) => x.id), 'untag', [t]),
+    }, from);
+  }
+
+  /** Into the bin (never the one being read): off the desk and the lists, with a note to undo it. */
+  private async trash(kind: LibKind, items: Array<PaperMeta | BookMeta>) {
+    const open = kind === 'papers' ? this.meta?.id : this.book?.meta.id;
+    const list = items.filter((m) => m.id !== open), ids = list.map((m) => m.id);
+    if (!ids.length) return;
+    try {
+      await api.batch(kind, ids, 'trash');
+    } catch (e) {
+      this.toasts.show('没扔掉：' + ((e as Error).message || e), 'error');
+      throw e;
+    }
+    const gone = new Set(ids);
+    if (kind === 'papers') {
+      this.papers = this.papers.filter((m) => !gone.has(m.id));
+      if (!this.reader) this.home.setPapers(this.papers, this.thumb);
+    } else {
+      await this.shelf.refresh();
+    }
+    this.libraryChanged(kind);
+    const what = list.length > 1 ? `${list.length} ${kind === 'papers' ? '篇论文' : '本读物'}` : `《${list[0].title.length > 24 ? list[0].title.slice(0, 22) + '…' : list[0].title}》`;
+    this.toasts.show(`${what}扔进了垃圾桶`, 'info', 7000, { label: '撤销', run: () => void this.undoTrash(kind, ids) });
+  }
+  private async undoTrash(kind: LibKind, ids: string[]) {
+    for (const id of ids) await api.restore(kind, id).catch(() => {});
+    await this.afterBinChange(kind);
+    this.toasts.show(ids.length > 1 ? `放回了 ${ids.length} ${kind === 'papers' ? '篇' : '本'}` : '放回去了', 'ok');
+  }
+  private async restoreFromBin(kind: LibKind, m: PaperMeta | BookMeta) {
+    try { await api.restore(kind, m.id); }
+    catch (e) { this.toasts.show('放不回去：' + ((e as Error).message || e), 'error'); return; }
+    await this.afterBinChange(kind);
+    this.toasts.show(`《${m.title.length > 24 ? m.title.slice(0, 22) + '…' : m.title}》放回${kind === 'papers' ? '桌上' : '书架'}了`, 'ok');
+  }
+  /** Something came out of the bin: the lists (and the piles on the desk) are fetched again. */
+  private async afterBinChange(kind: LibKind) {
+    if (kind === 'papers') {
+      this.papers = await api.papers().catch(() => this.papers);
+      if (!this.reader) this.home.setPapers(this.papers, this.thumb);
+    } else {
+      await this.shelf.refresh();
+    }
+    this.libraryChanged(kind);
+  }
+
+  /** A file chooser, from a click (browsers only open one from a click). */
+  private chooseFile(accept: string, then: (f: File) => void) {
+    const input = h('input', { type: 'file', accept, style: 'display:none' }) as HTMLInputElement;
+    input.addEventListener('change', () => { const f = input.files?.[0]; input.remove(); if (f) then(f); });
+    document.body.append(input);
+    input.click();
+  }
+  /** Bring a cleared paper back: download it again from where it came from, or ask for the file. Importing the same
+   *  PDF takes its record back (notes, tags, where you were). */
+  private reimportPaper(m: PaperMeta) {
+    const url = m.sourceUrl || (m.arxivId ? `https://arxiv.org/abs/${m.arxivId}` : '');
+    this.reimporting = m;
+    this.paperLib.hide();
+    this.home.fan.close();
+    if (url) {
+      void this.importer.show(this.reader ? 'top' : 'corner');
+      void this.importer.fetchUrl(url);
+    } else {
+      this.toasts.show(`找到《${m.title.length > 24 ? m.title.slice(0, 22) + '…' : m.title}》的 PDF（${m.fileName || '原来的文件'}）选上就行`, 'info', 5000);
+      this.chooseFile('application/pdf,.pdf', (f) => void this.importer.uploadFile(f));
+    }
+  }
+  /** Bring a cleared book back: download it again, or ask for the file; its record comes back with it. */
+  private reimportBook(m: BookMeta) {
+    const short = m.title.length > 24 ? m.title.slice(0, 22) + '…' : m.title;
+    const done = async (meta: BookMeta) => {
+      await this.shelf.refresh();
+      this.bookLib.update(this.shelf.books);
+      this.toasts.show(meta.id === m.id ? `《${short}》回来了，读到的地方和书签都在` : `《${short}》重新导入了（文件和原来的不完全一样，旧记录还在垃圾桶里）`, 'ok', 5000);
+    };
+    const fail = (e: unknown) => this.toasts.show('没导入成：' + ((e as Error).message || e), 'error');
+    if (m.sourceUrl) {
+      this.toasts.show(`正在重新下载《${short}》…`, 'info', 4000);
+      this.shelf.addFromUrl(m.sourceUrl, () => {}).then(done, fail);
+    } else {
+      this.toasts.show(`找到《${short}》的文件（${m.fileName || '原来的文件'}）选上就行`, 'info', 5000);
+      this.chooseFile(BOOK_ACCEPT, (f) => { this.shelf.addFile(f, f.name).then(done, fail); });
+    }
   }
 
   /** Read another paper from the shelf without going back to the desk: this one's pages clear away (where you were
@@ -1280,7 +1484,8 @@ export class App {
       if (this.settingsCard.open) { this.settingsCard.hide(); return; }
       if (this.notesList.open) { this.notesList.hide(); return; }
       if (this.toc.open) { this.toc.hide(); return; }
-      if (this.paperShelf.open) { this.paperShelf.hide(); return; }
+      if (this.tagEditor.open) { this.tagEditor.close(); return; }
+      if (this.paperLib.open) { this.paperLib.hide(); return; }
       if (this.importer.mode === 'popover') this.importer.hide();
       return;
     }
@@ -1310,7 +1515,7 @@ export class App {
       case 't': case 'T': void this.toggleToc(); break;
       case 'm': case 'M': this.toggleInk(); break;
       case 'b': case 'B': void this.goHome(); break;
-      case 'l': case 'L': this.toggleShelf(); break;
+      case 'l': case 'L': this.toggleLibrary('papers'); break;
       case 'f': case 'F': this.toggleImmersive(); break;
     }
   }

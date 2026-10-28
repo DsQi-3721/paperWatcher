@@ -89,15 +89,43 @@ export function idle(fn: () => void, timeout = 600) {
 }
 
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** Presses that only put something away (a popover, a card): what lies under them does not act on them as well. */
+export const dismissed = new WeakSet<Event>();
+
 /** While a popover is open: a press anywhere but on it closes it, except on what `keep` says (the button that opens
  *  it, which toggles it instead). Returns the switch that stops listening. */
 export function onPressOutside(el: Element, keep: (t: Element) => boolean, close: () => void): () => void {
   const fn = (e: PointerEvent) => {
     const t = e.target as Element | null;
-    if (t && !el.contains(t) && !keep(t)) close();
+    if (t && !el.contains(t) && !keep(t)) { dismissed.add(e); close(); }
   };
   addEventListener('pointerdown', fn, true);
   return () => removeEventListener('pointerdown', fn, true);
+}
+
+/** A button that must be pressed twice for something hard to undo: the first press arms it (it says what will happen,
+ *  in red, for a few seconds), the second does it. A stray click never throws anything away. */
+export function twice(label: string, armed: string, run: () => void | Promise<void>, opts: { cls?: string; title?: string; html?: string; ms?: number } = {}): HTMLButtonElement {
+  const b = h('button', { class: `twice ${opts.cls || ''}`, type: 'button', title: opts.title || label }) as HTMLButtonElement;
+  const idle = () => { if (opts.html) b.innerHTML = opts.html; else b.textContent = label; b.classList.remove('armed'); };
+  idle();
+  let t: ReturnType<typeof setTimeout> | undefined;
+  b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (b.disabled) return;
+    if (!b.classList.contains('armed')) {
+      b.classList.add('armed');
+      b.textContent = armed;
+      clearTimeout(t);
+      t = setTimeout(idle, opts.ms ?? 3500);
+      return;
+    }
+    clearTimeout(t);
+    b.disabled = true;
+    try { await run(); } finally { b.disabled = false; idle(); }
+  });
+  for (const ev of ['pointerdown', 'pointerup', 'dblclick']) b.addEventListener(ev, (e) => e.stopPropagation());
+  return b;
 }
 
 /** The next frame (after this one has been laid out and painted). */

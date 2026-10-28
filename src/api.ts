@@ -12,6 +12,8 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 const get = <T>(url: string) => fetch(url).then((r) => json<T>(r));
+/** the two libraries: papers (the piles) and books (the textbook's shelf) */
+export type LibKind = 'papers' | 'books';
 const send = <T>(method: string, url: string, body: unknown) =>
   fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => json<T>(r));
 
@@ -70,6 +72,22 @@ export const api = {
   bookFile: (id: string) => fetch(`/api/books/${id}/file`).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); }),
   putBookCover: (id: string, jpeg: Blob) => fetch(`/api/books/${id}/cover`, { method: 'PUT', body: jpeg }).then((r) => json<BookMeta>(r)),
   bookCoverUrl: (m: BookMeta) => `/api/books/${m.id}/cover?v=${m.cover}`,
+  /* taking things off the desk, and finding them again */
+  trashPaper: (id: string) => send<PaperMeta>('POST', `/api/papers/${id}/trash`, {}),
+  trashBook: (id: string) => send<BookMeta>('POST', `/api/books/${id}/trash`, {}),
+  /** what is in a bin, the latest first (purgedAt: its files are cleared, only the record is left) */
+  trash: <T>(kind: LibKind) => get<T[]>(`/api/trash/${kind}`),
+  restore: (kind: LibKind, id: string) => send<{ ok: true; result: 'restored' | 'merged' }>('POST', `/api/trash/${kind}/${id}/restore`, {}),
+  purge: (kind: LibKind, id: string) => send('POST', `/api/trash/${kind}/${id}/purge`, {}),
+  forget: (kind: LibKind, id: string) => fetch(`/api/trash/${kind}/${id}`, { method: 'DELETE' }).then((r) => json(r)),
+  emptyTrash: (kind: LibKind) => send<{ cleared: number }>('POST', `/api/trash/${kind}/empty`, {}),
+  trashPicUrl: (kind: LibKind, id: string) => `/api/trash/${kind}/${id}/pic`,
+  /** many at once: tags on or off, or into the bin */
+  batch: <T>(kind: LibKind, ids: string[], op: 'tag' | 'untag' | 'trash', tags: string[] = []) => send<T[]>('POST', `/api/library/${kind}/batch`, { ids, op, tags }),
+  /** papers whose own text has every word asked for, with a line round the first */
+  searchPapers: (q: string) => get<Array<{ id: string; snippet: string; hits: number }>>(`/api/papers-search?q=${encodeURIComponent(q)}`),
+  /** arXiv's field and year for the arXiv papers that have none yet */
+  enrichPapers: () => send<{ asked: number; found: number }>('POST', '/api/papers-enrich', {}),
   /** a book catalog page (OPDS feed), fetched by the server for us */
   catalog: (url: string) => fetch(`/api/catalog?url=${encodeURIComponent(url)}`, { headers: { 'X-PW': '1' } }).then((r) => json<{ text: string; type: string; url: string }>(r)),
 };
