@@ -1,0 +1,60 @@
+/* Backdrops behind the desk (src/scene/backdrops.ts). The layer sits under the scene's SVG and never takes the
+   pointer. Animations only move transforms / opacity, and stop while reading (.paused), with motion off (.still) or
+   while nobody is at the desk (.dozing: the window in the background, or nothing touched for a minute). */
+.scene-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; background: var(--scene-bg, #f2efe7); contain: strict; }
+.scene-bg > * { pointer-events: none; }
+.scene-bg.paused, .scene-bg.paused *, .scene-bg.still, .scene-bg.still *, .scene-bg.dozing, .scene-bg.dozing * { animation-play-state: paused !important; }
+.scene.reading .scene-bg { visibility: hidden; }
+
+/* the boxes a backdrop is built from: placed absolutely; those that follow the camera or move get their own layer */
+.scene-bg .bd { position: absolute; }
+.scene-bg .bd svg { display: block; overflow: visible; }
+.scene-bg .bd-px { will-change: transform; }
+.scene-bg .bd-anim {
+  will-change: transform;
+  animation-duration: var(--dur, 20s); animation-delay: var(--delay, 0s);
+  animation-iteration-count: infinite; animation-timing-function: linear;
+}
+.scene-bg .bd-drift { animation-name: bd-drift; }
+.scene-bg .bd-sway { animation-name: bd-sway; animation-direction: alternate; animation-timing-function: ease-in-out; }
+.scene-bg .bd-bob { animation-name: bd-bob; animation-direction: alternate; animation-timing-function: ease-in-out; }
+.scene-bg .bd-mote { animation-name: bd-mote; animation-direction: alternate; animation-timing-function: ease-in-out; will-change: transform, opacity; }
+.scene-bg .bd-rise { animation-name: bd-rise; will-change: transform, opacity; }
+.scene-bg .bd-twinkle { animation-name: bd-twinkle; animation-timing-function: ease-in-out; will-change: opacity; }
+.scene-bg .bd-swim { animation-name: bd-swim; }
+.scene-bg .bd-swim-back { animation-name: bd-swim-back; }
+.scene-bg .bd-plane { animation-name: bd-plane; animation-timing-function: ease-in-out; }
+.scene-bg .bd-shoot { animation-name: bd-shoot; will-change: transform, opacity; }
+
+/* a seamless strip slides one period left */
+@keyframes bd-drift { from { transform: translateX(0); } to { transform: translateX(calc(-1 * var(--p, 1000px))); } }
+/* turning gently about its transform-origin (a branch, a ray, a weed) */
+@keyframes bd-sway { from { transform: rotate(calc(-1 * var(--a, 1deg))); } to { transform: rotate(var(--a, 1deg)); } }
+@keyframes bd-bob { from { transform: translateY(calc(-1 * var(--b, 4px))); } to { transform: translateY(var(--b, 4px)); } }
+/* dust in the light: drifting, catching the light and losing it */
+@keyframes bd-mote { from { transform: translate(0, 0); opacity: var(--lo, .2); } to { transform: translate(var(--mx, 20px), var(--my, -30px)); opacity: var(--hi, .8); } }
+/* bubbles: up from below the sand to above the surface, fading in and out */
+@keyframes bd-rise {
+  0% { transform: translateY(0); opacity: 0; }
+  8% { opacity: var(--o, .9); }
+  80% { opacity: var(--o, .9); }
+  100% { transform: translateY(-112vh); opacity: 0; }
+}
+@keyframes bd-twinkle { 0%, 100% { opacity: var(--lo, .3); } 50% { opacity: 1; } }
+@keyframes bd-swim { from { transform: translateX(-12vw); } to { transform: translateX(108vw); } }
+@keyframes bd-swim-back { from { transform: translateX(108vw); } to { transform: translateX(-12vw); } }
+/* the paper plane: across the top in a quarter of its cycle, then out of sight until the next pass */
+@keyframes bd-plane {
+  0% { transform: translate(-30vw, 30vh) rotate(-4deg); }
+  7% { transform: translate(8vw, 19vh) rotate(-9deg); }
+  14% { transform: translate(44vw, 14vh) rotate(3deg); }
+  21% { transform: translate(80vw, 10vh) rotate(-7deg); }
+  27%, 100% { transform: translate(112vw, 5vh) rotate(-4deg); }
+}
+/* a shooting star: a streak for a moment, then nothing for a long while */
+@keyframes bd-shoot {
+  0% { transform: translate(0, 0); opacity: 0; }
+  0.6% { opacity: 1; }
+  3% { transform: translate(-34vw, 22vh); opacity: 0; }
+  100% { transform: translate(-34vw, 22vh); opacity: 0; }
+}

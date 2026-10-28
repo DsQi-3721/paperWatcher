@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>手摇削笔机</title></head><body>
+<script src="core.js"></script>
+<script src="kit.js"></script>
+<script>
+/* Fig. 05 — Crank pencil sharpener (desk-top rotary sharpener with a spring carriage and a crown-gear drive),
+   two wooden pencils, a memo pad and a small waste bin. The desk is turned toward the viewer (kit deskSetup):
+   u along its front edge, v toward the viewer; 1 unit = 1 mm. The sharpener's pencil hole faces -u (the left, on
+   screen), its crank is on its +v side (toward the viewer).
+
+   How it really works:
+   1. Load: pull the carriage out of the front (it runs on two guide rods; two springs inside pull it back), squeeze the
+      two buttons on it to open the clamp jaws, push the pencil in through the hole until it meets the cutter, let the
+      buttons go (the jaws grip the pencil) and let the carriage go (the springs now push the pencil against the cutter).
+   2. Crank: the crank shaft carries a small pinion that drives a crown gear on the back of the cutter carrier, so the
+      carrier turns round the pencil. The helical milling cutter sits in the carrier at 11 degrees to the pencil, its
+      edge along a cone; a pinion on its end rolls round a fixed ring gear, so the cutter also spins on its own axis as
+      it orbits. It mills the wood and graphite into a cone. Wood and graphite fall through the open carrier into the
+      shavings drawer. The carriage feeds the pencil in as it is cut, until the point touches the point stop on the
+      carrier's axis: then the cutter turns without cutting.
+   3. Empty the drawer: slide it out, tip it over the bin.
+   A pencil is only made shorter by what wears or breaks off its point; sharpening just cuts the wood back round the
+   graphite. But a rotary sharpener leaves a long needle point, which snaps on the first stroke; and a student who keeps
+   cranking while thumbing the carriage in forces the point against the stop, snaps it, and has it cut again, over and
+   over, until the pencil is too short for the jaws (and the drawer is full).
+
+   Parts:
+   BODY      shell . bevelled top . rubber base . front face . shavings drawer (clear front, finger notch) . crank boss .
+             crank arm . crank knob . back bearing wall
+   CARRIAGE  carriage plate . pencil hole . two squeeze buttons . two clamp jaws . two guide rods . two feed springs .
+             spring anchor bracket
+   CUTTER    carrier front disc . carrier back disc . three tie rods . helical cutter (flutes) . cutter pinion . fixed ring
+             gear . crown gear on the carrier . crank shaft . crank pinion . point stop
+   SHAVINGS  shavings pile in the drawer . falling curls . pile in the bin
+   DESK      desk board . memo pad . waste bin . two wooden pencils (painted hex, wood cone, graphite core, ferrule, eraser) */
+
+/* ---------- desk ---------- */
+const DLU = 196, DLV = 116, BH = 4, ZP = BH + .4;
+const DESK = deskSetup(DLU, DLV, 100, 30);
+const BTOP = deskTop(DLU, DLV, BH, 6);
+const PAD = [-93, -55, -33, -12], PAD_Z = BH + 3.6;               // memo pad: u0, v0, u1, v1; its top sheet
+const HELLO = deskHand('hello', -86, -27, PAD_Z + .05, 6.2, 9);
+const BIN = { u: -77, v: 22, r: 13, h: 32 };
+
+/* ---------- the sharpener (desk terms; a = u - SU0 measures depth from its front face) ---------- */
+const SU0 = -4, SU1 = 80, SV = 33, SZ1 = BH + 88, ZPN = BH + 56;   // body, pencil axis height
+const A_RING = 12.5, A_CF = 15, A_STOP = 46, A_CB = 49.5, A_CROWN = 52.5, A_CRANK = 58.5;
+const U_STOP = SU0 + A_STOP;
+const PHI = 11*Math.PI/180, TPHI = Math.tan(PHI);                  // half angle of the point
+const R_HEX = 4, R_IN = R_HEX*Math.cos(Math.PI/6), R_CORE = 1.0;
+const B_FLAT = R_HEX/TPHI;                                         // truncation at which the end is still flat (20.6 mm)
+const R_CUT = 5.4, R_RING = 16.2, R_PIN = 4.6, R_CROWN = 11, R_CPIN = 5.5;
+const DRW = { a0: 0, a1: 64, v: 27, z0: BH + 4, z1: BH + 27 };   // drawer, closed
+const CAR = { t: 9, v: 26, z: 19, rodV: 19 };                     // carriage plate: thickness, half width, half height
+const shAt = (a, v, z) => dk(SU0 + a, v, z);
+const PAINT = [{ l:'#4fa36a', m:'#2f8a4a', d:'#1d5f31' }, { l:'#ffd34d', m:'#e9b52a', d:'#a87b12' }];
+const PRINT = ['6151  HB', 'HB  考试专用'];
+const PRINT_COL = ['#f6d46a', INK];
+const PEN_MIN = 58;                                                // shorter than this and the jaws can't hold it
+
+/* ---------- the wooden pencil: tip at o, d toward the eraser; b = how far the point is cut back (0 = needle) ---------- */
+// Drawn between s0 and s1 (mm from the tip) so the parts hidden in the body or the carriage can be left out.
+function shPencil(p, pen, s0 = 0, s1 = 1e9){
+  const { o, d } = p, len = pen.len, b = pen.b, ph = p.roll || 0, items = [], [e1, e2] = axisFrame(d), M = PAINT[pen.kind];
+  s1 = Math.min(s1, len);
+  const clip = (a, c) => [Math.max(a, s0), Math.min(c, s1)];
+  const seg = (name, a, c, g, extra = '') => { const [x, y] = clip(a, c); if (y - x < .02) return;
+    const r = s => g.r0 + (g.r1 - g.r0)*(s - a)/(c - a || 1);
+    items.push({ name, s0: x, s1: y, svg: coaxSeg(o, d, { ...g, s0: x, s1: y, r0: r(x), r1: r(y) }) + extra }); };
+  const cut = s => Math.min(R_HEX, (b + s)*TPHI);                  // radius of the cut cone s behind the tip
+  const sCore = Math.max(0, R_CORE/TPHI - b), sWood = Math.max(0, B_FLAT - b);
+  if (sCore > 0) seg('core', 0, sCore, { r0: cut(0), r1: R_CORE, M: MAT.graphite, n: 14, w: .7, shade: toneI });
+  if (sWood > sCore) seg('cone', sCore, sWood, { r0: cut(sCore), r1: R_HEX, M: MAT.wood, n: 24, w: .9, shade: toneI });
+  // the painted hex: each face starts at the scalloped line where the cone meets it
+  const ferr = len - 13, faces = [];
+  for (let j = 0; j < 6; j++){
+    const th = ph + (j + .5)*Math.PI/3, n = kAdd(kScl(e1, Math.cos(th)), kScl(e2, Math.sin(th))), t = kAdd(kScl(e1, -Math.sin(th)), kScl(e2, Math.cos(th)));
+    if (!vis(n)) continue;
+    const pts = [];
+    for (let i = 0; i <= 8; i++){ const w = -2 + i/2, sf = Math.max(0, Math.hypot(R_IN, w)/TPHI - b), s = Math.min(Math.max(sf, s0), Math.min(ferr, s1));
+      pts.push(kAdd(kAdd(kAt(o, d, s), kScl(n, R_IN)), kScl(t, w))); }
+    const sb = Math.max(Math.min(ferr, s1), s0);
+    pts.push(kAdd(kAdd(kAt(o, d, sb), kScl(n, R_IN)), kScl(t, 2)), kAdd(kAdd(kAt(o, d, sb), kScl(n, R_IN)), kScl(t, -2)));
+    faces.push(fill(pd(pts), tone(n, M)) + ink(pd(pts), .5));
+    if (j === 0 || j === 3){ const mid = (Math.max(sWood, s0) + Math.min(ferr, s1))/2;
+      if (Math.min(ferr, s1) - Math.max(sWood, s0) > 30){ const v = cross(n, kScl(d, -1)); faces.push(txOn(kAdd(kAdd(kAt(o, d, mid), kScl(n, R_IN + .03)), kScl(v, -.8)), kScl(d, -1), n, PRINT[pen.kind], 2.4, PRINT_COL[pen.kind], 800)); } }
+  }
+  const hexA = Math.max(Math.max(0, R_IN/TPHI - b), s0), hexB = Math.min(ferr, s1);
+  if (hexB > hexA){
+    let cap = '';
+    if (b >= B_FLAT - .01 && s0 <= 0 && vis(kScl(d, -1))){   // a flat (uncut) end: wood and the graphite core
+      const hx = axisRing(o, d, R_HEX, 6, ph), core = axisRing(kAt(o, d, -.01), d, R_CORE, 12);
+      cap = fill(pd(hx), toneI(kScl(d, -1), MAT.wood)) + ink(pd(hx), .7) + fill(pd(core), MAT.graphite.m) + ink(pd(core), .4); }
+    items.push({ name:'hex', s0: hexA, s1: hexB, svg: faces.join('') + cap
+      + hullInk([...axisRing(kAt(o, d, hexA), d, R_HEX, 6, ph), ...axisRing(kAt(o, d, hexB), d, R_HEX, 6, ph)], 1.1) });
+  }
+  let rings = ''; for (const x of [len - 11.5, len - 7.5]) if (x > s0 && x < s1) for (const run of nearArc(kAt(o, d, x), d, 3.85, 24)) rings += pd(run, false);
+  seg('ferrule', ferr, len - 6, { r0: 3.8, r1: 3.8, M: MAT.steel, n: 24, w: .9, shade: toneI }, rings ? `<path d="${rings}" fill="none" stroke="${INK}" stroke-width=".5"/>` : '');
+  seg('eraser', len - 6, len, { r0: 3.5, r1: 3.3, M: matOf('#f4a3a8'), n: 24, w: .9, shade: toneI });
+  return coaxOrder(d, items);
+}
+const penPts = (p, pen) => [...axisRing(p.o, p.d, .4, 6), ...axisRing(kAt(p.o, p.d, Math.max(0, B_FLAT - pen.b)), p.d, R_HEX, 8), ...axisRing(kAt(p.o, p.d, pen.len), p.d, 3.6, 8)];
+const penLerp = (a, b, k) => ({ o: kLerp(a.o, b.o, k), d: norm(kLerp(a.d, b.d, k)), roll: (a.roll || 0) + ((b.roll || 0) - (a.roll || 0))*k });
+const penArc = (p, k, h) => ({ ...p, o: kAdd(p.o, [0, 0, h*Math.sin(Math.PI*k)]) });
+const REST = [ { o: dk(52, 46.5, BH + R_IN), d: kScl(DU, -1), roll: 0 }, { o: dk(58, 53.5, BH + R_IN), d: kScl(DU, -1), roll: 0 } ];
+const WRITE_D = norm(dkv(.33, .67, .67));
+const inSharp = gTip => ({ o: shAt(A_STOP - gTip, 0, ZPN), d: kScl(DU, -1), roll: 0 });   // the pencil on the sharpener's axis, its tip gTip short of the stop
+
+/* ---------- the sharpener's body ---------- */
+function shBody(st, m){
+  const foot = rrUV(SU0, -SV, SU1, SV, 9), up = (z, ins = 0) => rrUV(SU0 + ins, -SV + ins, SU1 - ins, SV - ins, 9 - ins).map(([u, v]) => dk(u, v, z));
+  const A = up(BH + 3), B = up(SZ1 - 6), T = up(SZ1, 4);
+  let s = '';
+  const base = rrUV(SU0 - 1.5, -SV - 1.5, SU1 + 1.5, SV + 1.5, 10), b0 = base.map(([u, v]) => dk(u, v, BH)), b1 = base.map(([u, v]) => dk(u, v, BH + 3));
+  s += loft(b0, b1, n => toneI(n, DARK)) + fill(pd(b1), DARK.m) + hullInk([...b0, ...b1], 1.2);
+  s += loft(A, B, n => tone(n, m)) + loft(B, T, n => tone(n, m)) + fill(pd(T), tone([0, 0, 1], m)) + ink(pd(T), 1.1) + ink(pd(B), .6);
+  // a label on the top
+  const lab = rrUV(SU0 + 26, -13, SU0 + 66, 13, 4).map(([u, v]) => dk(u, v, SZ1 + .02));
+  s += shape(lab, '#fff4d6', .7) + deskText(SU0 + 46, 4, SZ1 + .04, 'SHARP 1', 6, INK, 800, 'middle') + deskText(SU0 + 46, 9.5, SZ1 + .04, '自动停笔', 3.6, INK, 700, 'middle');
+  // the front face (toward -u): the pencil opening behind the carriage, the drawer's clear front
+  const F = vis(kScl(DU, -1)), fr = (a, v, z) => shAt(a - .05, v, z);
+  if (F){
+    const hole = Array.from({length:20}, (_, i) => { const t = i/20*2*Math.PI; return fr(0, 6*Math.cos(t), ZPN + 6*Math.sin(t)); });
+    s += fill(pd(hole), '#1d1a16') + ink(pd(hole), .7);
+    if (st.dOut > .5){ const op = [fr(0, -DRW.v, DRW.z0), fr(0, DRW.v, DRW.z0), fr(0, DRW.v, DRW.z1), fr(0, -DRW.v, DRW.z1)]; s += fill(pd(op), '#2a2421') + ink(pd(op), .8); }
+    for (const v of [-CAR.rodV, CAR.rodV]){ const rh = Array.from({length:12}, (_, i) => { const t = i/12*2*Math.PI; return fr(0, v + 2.6*Math.cos(t), ZPN + 2.6*Math.sin(t)); }); s += fill(pd(rh), '#2a2421'); }
+  }
+  // the crank boss on the +v side
+  const V = vis(DV);
+  if (V) s += coaxSeg(shAt(A_CRANK, SV, ZPN), DV, { s0: 0, s1: 3.5, r0: 9, M: m, n: 24, w: 1, shade: toneI });
+  return s + hullInk([...b0, ...T, ...A], 2.6);
+}
+// the crank: arm from the boss out to the knob, the knob turning freely on its pin; th = crank angle
+function shCrank(st, m){
+  const c = shAt(A_CRANK, SV + 3.5, ZPN), th = st.crank, r = 26;
+  const ax = [DU[0]*Math.cos(th), DU[1]*Math.cos(th), Math.sin(th)], ay = kScl(DV, 1), az = cross(ax, ay);
+  const kn = kAdd(c, kScl(ax, r));
+  const arm = obox(kAdd(kAdd(c, kScl(ax, r/2)), kScl(DV, 1.6)), ax, DV, az, r/2 + 4, 1.6, 4.2, METAL, toneI, .9);
+  const hub = coaxSeg(c, DV, { s0: 0, s1: 3.4, r0: 5.5, M: METAL, n: 20, w: .9, shade: toneI });
+  const knob = coaxSeg(kn, DV, { s0: 3.2, s1: 15, r0: 4.6, r1: 4.2, M: DARK, n: 20, w: 1, shade: toneI }) + coaxSeg(kn, DV, { s0: 15, s1: 16.5, r0: 4.2, r1: 3.2, M: DARK, n: 20, w: 1, shade: toneI });
+  return act('crank', vis(DV) ? hub + arm + knob : knob + arm + hub);
+}
+// the carriage: plate out in front of the face by out mm, two rods back into the body, squeeze buttons on its sides
+function shCarriage(st, m){
+  const out = st.cOut, a0 = -out - CAR.t, a1 = -out, sq = st.squeeze*2;
+  const plate = deskBox(SU0 + a0, -CAR.v, ZPN - CAR.z, SU0 + a1, CAR.v, ZPN + CAR.z, matOf(mix(m.l, '#ffffff', .25)), tone, 1.1);
+  let s = '';
+  const rods = [-CAR.rodV, CAR.rodV].map(v => rod(shAt(a1, v, ZPN), shAt(.2, v, ZPN), 2.2, METAL, toneI, .8, 2.2, 12));
+  const btn = sgn => { const v0 = CAR.v - .5, v1 = CAR.v + 4 - sq; return deskBox(SU0 + a0 + 1.5, sgn > 0 ? v0 : -v1, ZPN - 7, SU0 + a1 - 1.5, sgn > 0 ? v1 : -v0, ZPN + 7, DARK, toneI, .8); };
+  const F = vis(kScl(DU, -1));
+  let face = '';
+  if (F){ const hole = Array.from({length:18}, (_, i) => { const t = i/18*2*Math.PI; return shAt(a0 - .05, 5*Math.cos(t), ZPN + 5*Math.sin(t)); });
+    face = fill(pd(hole), '#1d1a16') + ink(pd(hole), .7) + ink(pd(Array.from({length:18}, (_, i) => { const t = i/18*2*Math.PI; return shAt(a0 - .06, 8*Math.cos(t), ZPN + 8*Math.sin(t)); })), .5); }
+  // buttons on the far side first, rods behind the plate
+  const near = vis(DV) ? 1 : -1;
+  s += (F ? rods.join('') : '') + btn(-near) + plate + face + btn(near) + (F ? '' : rods.join(''));
+  return act('carriage', s);
+}
+// the shavings drawer: a clear box with the pile in it. pose: centre c, axes ax (out of the body = -u), ay, az
+function drawerPose(st){
+  if (st.dump) return st.dump;
+  const a = (DRW.a0 + DRW.a1)/2 - st.dOut;
+  return { c: shAt(a, 0, (DRW.z0 + DRW.z1)/2), ax: kScl(DU, -1), ay: DV.slice(), az: [0, 0, 1] };
+}
+const PILE = { l:'#e2b980', m:'#c9995c', d:'#8a6136' };
+function shDrawer(st, xr, m = PALS[st.pal]){
+  const p = drawerPose(st), hx = (DRW.a1 - DRW.a0)/2, hy = DRW.v, hz = (DRW.z1 - DRW.z0)/2;
+  const at = (x, y, z) => [0, 1, 2].map(i => p.c[i] + p.ax[i]*x + p.ay[i]*y + p.az[i]*z);
+  let s = '';
+  // the pile, then the clear box round it; then the front panel (at x = +hx, toward -u)
+  const fill_ = Math.min(1, st.fillD), ph = (2*hz - 2)*fill_;
+  const pile = ph > .3 ? obox(at(0, 0, -hz + 1 + ph/2), p.ax, p.ay, p.az, hx - 1.5, hy - 1.5, ph/2, PILE, toneI, .6) : '';
+  let specks = '';
+  if (ph > .3 && vis(p.az)){ const rnd = kRng(5); for (let i = 0; i < 26; i++){ const q = at((rnd() - .5)*(2*hx - 6), (rnd() - .5)*(2*hy - 6), -hz + 1 + ph + .05); const [X, Y] = P(...q);
+    specks += `<circle cx="${f(X)}" cy="${f(Y)}" r="${f(.5 + rnd()*.5)}" fill="${rnd() < .4 ? '#3a3a40' : '#a97a42'}"/>`; } }
+  const box_ = `<g opacity=".45">${shOpenBox(p, hx, hy, hz, MAT.clear)}</g>`;
+  const front = obox(at(hx + 1, 0, 0), p.ax, p.ay, p.az, 1, hy + 1, hz + 1, matOf(mix(m.l, '#000000', .1)), toneI, 1);
+  const frontVis = vis(p.ax);
+  // in the closed view only the front panel shows (the box is inside the body); through it, the pile's front
+  let win = '';
+  if (frontVis){ const fz = -hz + 1 + ph, wz0 = -hz + 3, wz1 = hz - 6, wv = hy - 8;
+    const w = [at(hx + 2.05, -wv, wz0), at(hx + 2.05, wv, wz0), at(hx + 2.05, wv, wz1), at(hx + 2.05, -wv, wz1)];
+    win = fill(pd(w), '#dcebef') + ink(pd(w), .7);       // a clear window: how full it is
+    const q = [at(hx + 2.06, -wv, wz0), at(hx + 2.06, wv, wz0), at(hx + 2.06, wv, Math.min(wz1, fz)), at(hx + 2.06, -wv, Math.min(wz1, fz))];
+    if (fz > wz0 + .2) win += fill(pd(q), PILE.m) + `<path d="${pd([q[3], q[2]], false)}" fill="none" stroke="${PILE.d}" stroke-width=".8"/>`;
+    win += `<path d="${pd([at(hx + 2.07, -wv + 3, wz1 - 2), at(hx + 2.07, -wv + 9, wz0 + 3)], false)}" stroke="#ffffff" stroke-width="1.4" opacity=".6" stroke-linecap="round"/>`;
+    const notch = Array.from({length:10}, (_, i) => { const t = Math.PI*i/9; return at(hx + 2.08, 9*Math.cos(t), hz + 1 - 5*Math.sin(t)); });
+    win += fill(pd(notch), '#2a2421'); }
+  const front_ = front + win;
+  const inner = (st.dOut > .5 || xr || st.dump) ? pile + specks + box_ : '';
+  return frontVis ? inner + front_ : front_ + inner;
+}
+// a box without its top (the drawer): far walls, floor, near walls
+function shOpenBox(p, hx, hy, hz, M){
+  const v = (i, j, k) => [0, 1, 2].map(q => p.c[q] + p.ax[q]*hx*i + p.ay[q]*hy*j + p.az[q]*hz*k);
+  const F = [[p.ax, [[1,-1,-1],[1,1,-1],[1,1,1],[1,-1,1]]], [kScl(p.ax,-1), [[-1,-1,-1],[-1,1,-1],[-1,1,1],[-1,-1,1]]],
+             [p.ay, [[-1,1,-1],[1,1,-1],[1,1,1],[-1,1,1]]], [kScl(p.ay,-1), [[-1,-1,-1],[1,-1,-1],[1,-1,1],[-1,-1,1]]],
+             [kScl(p.az,-1), [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1]]]];
+  const face = ([n, q]) => shape(q.map(([i, j, k]) => v(i, j, k)), toneI(n, M), .6);
+  return F.filter(([n]) => !vis(n)).map(face).join('') + F.filter(([n]) => vis(n)).map(face).join('');
+}
+const shDrawerPts = st => { const p = drawerPose(st), hx = (DRW.a1 - DRW.a0)/2 + 2, hy = DRW.v + 1, hz = (DRW.z1 - DRW.z0)/2 + 1; return oboxPts(p.c, p.ax, p.ay, p.az, hx, hy, hz); };
+
+/* ---------- see-through: the carrier, cutter and gears ---------- */
+// a ring (washer-like) on the pencil axis from a0 to a1: outer wall, the end face toward the viewer with its hole open
+function shAnnulus(a0, a1, rOut, rIn, M, w = .8){
+  const ax = shAt(0, 0, ZPN), A = axisRing(kAt(ax, DU, a0), DU, rOut, 36), B = axisRing(kAt(ax, DU, a1), DU, rOut, 36);
+  const capB = vis(DU), ca = capB ? a1 : a0, cn = capB ? DU : kScl(DU, -1);
+  const o = axisRing(kAt(ax, DU, ca), DU, rOut, 36), i = axisRing(kAt(ax, DU, ca), DU, rIn, 24), ii = axisRing(kAt(ax, DU, capB ? a0 : a1), DU, rIn, 24);
+  return loft(A, B, n => toneI(n, M)) + `<g opacity=".5">${loft(i, ii, n => toneI(kScl(n, -1), M), true)}</g>`
+    + `<path d="${pd(o)}${pd(i.slice().reverse())}" fill="${toneI(cn, M)}" fill-rule="evenodd"/>` + ink(pd(o), w*.8) + ink(pd(i), w*.6) + hullInk([...A, ...B], w);
+}
+const shE = psi => kAdd(kScl(DV, Math.cos(psi)), [0, 0, Math.sin(psi)]);    // radial direction round the pencil axis
+function shMech(st, pen){
+  const psi = st.psi, parts = pen ? [pen] : [], put = (box, svg) => parts.push({ box, svg }), axis = (a) => shAt(a, 0, ZPN);
+  const D = DU, GEAR = matOf('#f0ede4'), CUT = matOf('#c9d0d4'), BRASS = MAT.brass;
+  const disc = (a0, a1, r, M, hole = 0) => { const pts = [...axisRing(axis(a0), D, r, 10), ...axisRing(axis(a1), D, r, 10)];
+    put(boxOf(pts), hole ? shAnnulus(a0, a1, r, hole, M) : coaxSeg(axis(0), D, { s0: a0, s1: a1, r0: r, M, n: 32, w: .8, shade: toneI })); };
+  // fixed ring gear (internal teeth drawn as a toothed inner edge on its face)
+  { const g = shAnnulus(A_RING - 1.5, A_RING + 1.5, R_RING + 4, R_RING + 1, matOf('#9aa3a8'));
+    const fc = vis(kScl(D, -1)) ? A_RING - 1.55 : A_RING + 1.55, teeth = [];
+    for (let j = 0; j < 44; j++) for (const [f0, rr] of [[0, R_RING + 1], [.25, R_RING - .9], [.5, R_RING - .9], [.75, R_RING + 1]]){ const t = (j + f0)/44*2*Math.PI; teeth.push(kAdd(axis(fc), kAdd(kScl(DV, rr*Math.cos(t)), [0, 0, rr*Math.sin(t)]))); }
+    const band = Array.from({length:44}, (_, j) => { const t = -j/44*2*Math.PI; return kAdd(axis(fc), kAdd(kScl(DV, (R_RING + 1.6)*Math.cos(t)), [0, 0, (R_RING + 1.6)*Math.sin(t)])); });
+    put(boxOf([...axisRing(axis(A_RING - 1.5), D, R_RING + 4, 8), ...axisRing(axis(A_RING + 1.5), D, R_RING + 4, 8)]), g + `<path d="${pd(teeth)}${pd(band)}" fill="#5d6468" fill-rule="evenodd"/>` + ink(pd(teeth), .4)); }
+  disc(A_CF - 1, A_CF + 1, 15, GEAR, 6);
+  disc(A_CB - 1.5, A_CB + 1.5, 15, GEAR);
+  // crown gear: teeth standing on the back disc's back face, turning with the carrier
+  { const teeth = []; for (let j = 0; j < 22; j++){ const t = psi + j/22*2*Math.PI, e = shE(t);
+      teeth.push(obox(kAdd(axis(A_CROWN - .5), kScl(e, R_CROWN)), D, e, cross(D, e), 1, 1.4, .9, BRASS, toneI, .4)); }
+    put(boxOf([...axisRing(axis(A_CB + 1.5), D, 13, 8), ...axisRing(axis(A_CROWN + .5), D, 13, 8)]), teeth.join('')); }
+  // tie rods between the discs (clear of the cutter's angle)
+  for (const k of [1, 2, 3]){ const e = shE(psi + k*Math.PI/2 + Math.PI/4*0 + (k === 2 ? 0 : 0) + Math.PI/2*0 + (k - 1)*0), r = 13;
+    const ee = shE(psi + Math.PI*(.6 + k*.45)); const a = kAdd(axis(A_CF + 1), kScl(ee, r)), b = kAdd(axis(A_CB - 1.5), kScl(ee, r));
+    put(boxOf([a, b], 1.4), rod(a, b, 1.2, METAL, toneI, .6, 1.2, 10)); }
+  // the cutter: its axis along the cone's edge, set out by its own radius; flutes turn with its spin
+  { const e = shE(psi), g = norm(kAdd(kScl(D, -Math.cos(PHI)), kScl(e, Math.sin(PHI)))), n = norm(kAdd(kScl(e, Math.cos(PHI)), kScl(D, Math.sin(PHI))));
+    const apex = axis(A_STOP), c0 = kAdd(apex, kAt(kScl(n, R_CUT), g, -1)), c1 = kAdd(apex, kAt(kScl(n, R_CUT), g, 30));
+    let s = coaxSeg(c0, g, { s0: 0, s1: kLen(sub(c1, c0)), r0: R_CUT, M: CUT, n: 24, w: .9, shade: toneI });
+    const [f1, f2] = axisFrame(g), spin = st.spin;
+    let fl = '';
+    for (let j = 0; j < 8; j++){ let run = [];
+      for (let i = 0; i <= 24; i++){ const t = i/24, ang = spin + j*Math.PI/4 + t*2.2, rad = kAdd(kScl(f1, Math.cos(ang)), kScl(f2, Math.sin(ang))), q = kAdd(kAt(c0, g, t*kLen(sub(c1, c0))), kScl(rad, R_CUT + .02));
+        if (vis(rad)) run.push(q); else if (run.length){ if (run.length > 1) fl += pd(run, false); run = []; } }
+      if (run.length > 1) fl += pd(run, false); }
+    s += `<path d="${fl}" fill="none" stroke="${INK}" stroke-width=".5" opacity=".75"/>`;
+    // pinion on its wide end, rolling on the ring gear
+    const p0 = kAt(c1, g, .5), p1 = kAt(c1, g, 3.5);
+    let pin = coaxSeg(p0, g, { s0: 0, s1: 3, r0: R_PIN, M: BRASS, n: 16, w: .7, shade: toneI });
+    const tooth = []; for (let j = 0; j < 12; j++){ const ang = spin + j/12*2*Math.PI, rad = kAdd(kScl(f1, Math.cos(ang)), kScl(f2, Math.sin(ang))); if (vis(rad)) tooth.push(pd([kAdd(p0, kScl(rad, R_PIN + .02)), kAdd(p1, kScl(rad, R_PIN + .02))], false)); }
+    pin += `<path d="${tooth.join('')}" fill="none" stroke="${INK}" stroke-width=".45"/>`;
+    const tow = vis(kScl(g, -1));       // the narrow end (by the point) toward the viewer?
+    put(boxOf([...axisRing(c0, g, R_CUT, 8), ...axisRing(p1, g, R_PIN, 8)]), tow ? pin + s : s + pin); }
+  // point stop on the carrier's axis, just past the apex
+  put(boxOf([axis(A_STOP + .3), axis(A_CB - 1.5)], 2.6), coaxSeg(axis(0), D, { s0: A_STOP + .3, s1: A_CB - 1.5, r0: 2.4, M: matOf('#e2483d'), n: 16, w: .7, shade: toneI }));
+  // carrier shaft to the back bearing wall; the wall
+  put(boxOf([axis(A_CROWN), axis(70)], 2.4), coaxSeg(axis(0), D, { s0: A_CROWN, s1: 70, r0: 2.2, M: METAL, n: 14, w: .7, shade: toneI }));
+  put(boxOf([shAt(70, -20, ZPN - 20), shAt(73, 20, ZPN + 20)]), deskBox(SU0 + 70, -20, ZPN - 20, SU0 + 73, 20, ZPN + 20, matOf('#9aa3a8'), toneI, .7));
+  // crank shaft (along v) with its pinion on the crown gear
+  { const sc = shAt(A_CRANK, 0, ZPN), pin = coaxSeg(sc, DV, { s0: R_CROWN - 3, s1: R_CROWN + 3, r0: R_CPIN, M: BRASS, n: 16, w: .7, shade: toneI });
+    const tl = []; for (let j = 0; j < 10; j++){ const ang = st.crank + j/10*2*Math.PI, rad = kAdd(kScl(DU, Math.cos(ang)), [0, 0, Math.sin(ang)]); if (vis(rad)) tl.push(pd([kAdd(kAt(sc, DV, R_CROWN - 3), kScl(rad, R_CPIN + .02)), kAdd(kAt(sc, DV, R_CROWN + 3), kScl(rad, R_CPIN + .02))], false)); }
+    put(boxOf([kAt(sc, DV, R_CROWN - 3), kAt(sc, DV, SV)], R_CPIN), pin + `<path d="${tl.join('')}" fill="none" stroke="${INK}" stroke-width=".45"/>` + coaxSeg(sc, DV, { s0: R_CROWN + 3, s1: SV, r0: 1.8, M: METAL, n: 12, w: .6, shade: toneI })); }
+  // carriage rods inside, their feed springs, the spring anchor bracket
+  for (const v of [-CAR.rodV, CAR.rodV]){
+    put(boxOf([shAt(0, v, ZPN), shAt(28, v, ZPN)], 2.4), rod(shAt(0, v, ZPN), shAt(28, v, ZPN), 2.2, METAL, toneI, .7, 2.2, 12));
+    const cl = coilParts(shAt(2, v, ZPN), DU, 0, 22, 3.2, 9, '#d8dde0', .45);
+    put(boxOf([shAt(2, v, ZPN), shAt(24, v, ZPN)], 3.4), cl.far + cl.near); }
+  put(boxOf([shAt(27, -27, ZPN - 4), shAt(30, 27, ZPN + 4)]), deskBox(SU0 + 27, -27, ZPN - 4, SU0 + 30, -17, ZPN + 4, matOf('#9aa3a8'), toneI, .6) + deskBox(SU0 + 27, 17, ZPN - 4, SU0 + 30, 27, ZPN + 4, matOf('#9aa3a8'), toneI, .6));
+  // curls of wood and graphite falling from the cutter into the drawer while it cuts
+  if (st.cutting){ const rnd = kRng(3); let cs = '';
+    for (let i = 0; i < 12; i++){ const ph = (st.t*1.6 + i/12) % 1, a = 22 + rnd()*20, v = (rnd() - .5)*22, z = ZPN - 8 - ph*(ZPN - 8 - (DRW.z0 + 2 + 24*Math.min(1, st.fillD)));
+      const [X, Y] = P(...shAt(a, v, z)); cs += `<path d="M${f(X - 1.4)} ${f(Y)}q1.4 -1.6 2.8 0q-1 1.4 -2.2 .4" fill="${i % 4 === 0 ? '#55575e' : '#d9a86c'}" stroke="${INK}" stroke-width=".35"/>`; }
+    put([shAt(20, -12, DRW.z0), shAt(44, 12, ZPN - 6)], cs); }
+  return byDepth(parts);
+}
+const boxOf = (pts, r = 0) => [[0,1,2].map(i => Math.min(...pts.map(p => p[i])) - r), [0,1,2].map(i => Math.max(...pts.map(p => p[i])) + r)];
+
+/* ---------- memo pad, bin ---------- */
+function memoPad(st){
+  const [u0, v0, u1, v1] = PAD;
+  let s = deskBox(u0, v0, BH, u1, v1, PAD_Z - .4, MAT.paper, toneI, .9) + deskSheet(u0, v0, u1, v1, PAD_Z - .4, .4, { rule: 7.5, rule0: 9, margin: 7 });
+  const lines = []; if (st.hello) lines.push(...HELLO); if (st.ans != null) lines.push(...traceStrokes(HELLO, st.ans).done);
+  s += graphite(lines, GRAPHITE, st.blunt ? .8 : .55, .9);
+  for (const bt of st.bits) s += rod(dk(bt.u, bt.v, PAD_Z + .2), dk(bt.u + 1.6*Math.cos(bt.a), bt.v + 1.6*Math.sin(bt.a), PAD_Z + .2), .3, MAT.graphite, toneI, .4, .3, 6);
+  return s;
+}
+function wasteBin(st){
+  const { u, v, r, h } = BIN, ring = (z, rr) => Array.from({length:30}, (_, i) => { const t = i/30*2*Math.PI; return dk(u + rr*Math.cos(t), v + rr*Math.sin(t), z); });
+  const A = ring(BH, r - 2), B = ring(BH + h, r), M = matOf('#7fb3d5');
+  let inside = '';
+  if (st.fillB > .01){ const zt = BH + 2 + (h - 6)*Math.min(1, st.fillB), top = ring(zt, r - 2 + 2*(zt - BH)/h - .6);
+    inside = fill(pd(top), PILE.m) + ink(pd(top), .5);
+    const rnd = kRng(8); let sp = ''; for (let i = 0; i < 14; i++){ const t = rnd()*2*Math.PI, rr = rnd()*(r - 4), [X, Y] = P(...dk(u + rr*Math.cos(t), v + rr*Math.sin(t), zt + .05)); sp += `<circle cx="${f(X)}" cy="${f(Y)}" r=".6" fill="${rnd() < .4 ? '#3a3a40' : '#a97a42'}"/>`; }
+    inside += sp; }
+  const bottom = fill(pd(A), M.d);
+  return openShell(A, B, n => toneI(n, M), bottom + inside) + ink(pd(B), 1.1) + hullInk([...A, ...B], 1.6);
+}
+
+/* ---------- scene ---------- */
+function scene(st, m){
+  const k = ease(st.xr || 0);
+  let s = deskBoard(DLU, DLV, BH, 6, WOOD) + memoPad(st);
+  const bodyPts = [...rrUV(SU0, -SV, SU1, SV, 9).map(([u, v]) => dk(u, v, BH)), ...rrUV(SU0, -SV, SU1, SV, 9).map(([u, v]) => dk(u, v, SZ1))];
+  s += castShadow(bodyPts, BH, BTOP);
+  s += castShadow(Array.from({length:16}, (_, i) => { const t = i/16*2*Math.PI; return dk(BIN.u + BIN.r*Math.cos(t), BIN.v + BIN.r*Math.sin(t), [BH, BH + BIN.h][i % 2]); }), BH, BTOP);
+  st.pens.forEach((pen, i) => { if (!pen.gone) s += castShadow(penPts(st.pose[i], pen), BH, BTOP); });
+  if (st.dump) s += castShadow(shDrawerPts(st), BH, BTOP);
+  const items = [];
+  // the sharpener: body, carriage, crank, drawer and the loaded pencil in pieces (inside / between plate and face / outside)
+  const cur = st.cur, loaded = st.loaded, pen = st.pens[cur], pp = st.pose[cur];
+  const tipA = loaded ? undk(pp.o)[0] - SU0 : 0;
+  const F = vis(kScl(DU, -1));
+  // pieces outside the body: carriage (with the pencil between the plate and the face, and beyond the plate)
+  let shell = shBody(st, m), inner = '', outside;
+  if (loaded){ const sFace = tipA, sPlate = tipA + st.cOut;
+    inner = shPencil(pp, pen, 0, sFace);
+    const gap = shPencil(pp, pen, sFace, sPlate), outer = shPencil(pp, pen, sPlate + CAR.t, 1e9), car = shCarriage(st, m);
+    outside = F ? gap + car + outer : outer + car + gap;
+  } else outside = shCarriage(st, m);
+  const crank = shCrank(st, m), drw = st.dump ? '' : shDrawer(st, k > 0);
+  const order = (core) => { let x = F ? core + outside : outside + core; x = vis(DV) ? x + crank : crank + x; return F ? x + drw : drw + x; };
+  let sharp;
+  if (k > 0){ const pin = loaded ? { box: boxOf([pp.o, kAt(pp.o, pp.d, Math.max(0, tipA))], R_HEX), svg: inner } : null;
+    sharp = `<g opacity="${f(1 - .82*k)}">${shell}</g>` + order(`<g opacity="${f(k)}">${shDrawer(st, true)}${shMech(st, pin)}</g>`); }
+  else sharp = order(shell);
+  items.push({ box: boxOf([...bodyPts, shAt(-st.cOut - CAR.t - 2, 0, ZPN), shAt(A_CRANK, SV + 20, ZPN), ...(loaded ? [pp.o, kAt(pp.o, pp.d, pen.len)] : [])]), svg: sharp });
+  st.pens.forEach((pen, i) => { if (pen.gone || (loaded && i === cur)) return; items.push({ box: boxOf(penPts(st.pose[i], pen), 1), svg: shPencil(st.pose[i], pen) }); });
+  items.push({ box: [dk(BIN.u, BIN.v, 0).map((x, i) => i < 2 ? x - BIN.r : BH), dk(BIN.u, BIN.v, 0).map((x, i) => i < 2 ? x + BIN.r : BH + BIN.h)], svg: wasteBin(st) });
+  if (st.dump) items.push({ box: boxOf(shDrawerPts(st)), svg: shDrawer(st, true) + pour(st) });
+  s += byDepth(items);
+  if (st.fly){ const fl = st.fly, dir = norm(dkv(Math.cos(fl.a), Math.sin(fl.a), .3)); s += rod(kAt(fl.p, dir, -.8), kAt(fl.p, dir, .8), .3, MAT.graphite, toneI, .4, .3, 6); }
+  s += labels(st, k);
+  return s;
+}
+// shavings streaming out of the tipped drawer into the bin
+function pour(st){
+  if (!(st.pouring > 0)) return ''; const rnd = kRng(4); let s = '';
+  const from = drawerPose(st).c, to = dk(BIN.u, BIN.v, BH + 4 + (BIN.h - 6)*st.fillB);
+  for (let i = 0; i < 16; i++){ const ph = (st.t*2.2 + i/16) % 1, q = kLerp(kAdd(from, [(rnd() - .5)*8, (rnd() - .5)*8, -6]), kAdd(to, [(rnd() - .5)*10, (rnd() - .5)*10, 0]), ph);
+    const [X, Y] = P(...q); s += `<path d="M${f(X - 1.3)} ${f(Y)}q1.3 -1.5 2.6 0q-1 1.3 -2 .4" fill="${i % 5 === 0 ? '#55575e' : '#d9a86c'}" stroke="${INK}" stroke-width=".35"/>`; }
+  return s;
+}
+function labels(st, k){
+  const B = (() => { const c = []; for (const a of [-st.cOut - 10, 84]) for (const v of [-SV, SV + 18]) c.push(shAt(a, v, BH)); return [Math.min(...c.map(p => p[0])), Math.max(...c.map(p => p[0])), Math.min(...c.map(p => p[1])), Math.max(...c.map(p => p[1])), BH, SZ1]; })();
+  const kn = (() => { const th = st.crank; return kAdd(shAt(A_CRANK, SV + 14, ZPN), [DU[0]*26*Math.cos(th), DU[1]*26*Math.cos(th), 26*Math.sin(th)]); })();
+  const cut = st.cutting, e = shE(st.psi);
+  if (k > .6) return zhCallouts([
+    { at: kAdd(shAt(A_STOP - 14, 0, ZPN), kScl(e, R_CUT + 3)), text: '螺旋刀', on: cut },
+    { at: kAdd(shAt(A_RING, 0, ZPN), kScl(shE(st.psi + .3), R_RING)), text: '固定内齿圈', on: cut },
+    { at: kAdd(shAt(A_RING + 2, 0, ZPN), kScl(e, R_RING - 3)), text: '刀轮小齿轮', on: cut },
+    { at: kAdd(shAt(A_CB, 0, ZPN), kScl(shE(st.psi + 2), 15)), text: '刀架', on: cut },
+    { at: kAdd(shAt(A_CROWN, 0, ZPN), kScl(shE(Math.PI/2), R_CROWN)), text: '冠齿轮', on: cut },
+    { at: shAt(A_CRANK, R_CROWN, ZPN + R_CPIN), text: '摇把小齿轮', on: cut },
+    { at: shAt(A_STOP + 1.5, 0, ZPN + 2.4), text: '止笔挡', on: st.atStop },
+    { at: shAt(12, CAR.rodV, ZPN + 3.2), text: '送笔弹簧', on: cut || st.cOut > 1 },
+    { at: shAt(30, 0, (DRW.z0 + DRW.z1)/2 + 4), text: '笔屑盒', on: cut || st.pouring > 0 } ], B);
+  return zhCallouts([
+    { at: kn, text: '摇把', on: cut },
+    { at: shAt(-st.cOut - CAR.t/2, 0, ZPN + CAR.z), text: '进笔夹板', on: st.cOut > 1 },
+    { at: shAt(-st.cOut - CAR.t/2, SV, ZPN), text: '夹笔按钮', on: st.squeeze > .1 },
+    { at: shAt(-st.dOut - 2, -12, DRW.z1), text: '笔屑盒', on: st.pouring > 0 },
+    ...(st.loaded ? [{ at: kAt(st.pose[st.cur].o, st.pose[st.cur].d, Math.max(80, st.pens[st.cur].len - 40)), text: '铅笔', on: cut }] : []),
+    { at: dk(BIN.u, BIN.v - BIN.r, BH + BIN.h), text: '纸篓', on: st.pouring > 0 } ], B);
+}
+
+/* ---------- actions ---------- */
+let ui;
+const BUSY = { load: '正在装笔', crank: '正在摇', dump: '正在倒笔屑', write: '正在写', mad: '停不下来……' };
+const busy = () => { if (!kBusy()) return false; ui.flash(BUSY[kBusy()] || '等一下'); return true; };
+// the pencil pose while it sits in the jaws: its tip (gap g short of the stop) moves with the carriage
+const heldAt = st => inSharp(st.gap);
+const G_OUT = A_STOP + 30 + CAR.t + 7;                            // tip just clear of the pulled-out carriage
+function loadSegs(st){
+  const pen = st.pens[st.cur], g0 = Math.min(pen.b, B_FLAT) + 1.5;
+  return [
+    { ms: 300, step(k){ st.cOut = 30*ease(k); } },                                    // pull the carriage out
+    { ms: 160, step(k){ st.squeeze = ease(k); } },                                      // squeeze the buttons: jaws open
+    { ms: 520, start(){ this.from = st.pose[st.cur]; this.to = inSharp(G_OUT); },
+      step(k){ st.pose[st.cur] = penArc(penLerp(this.from, this.to, ease(k)), k, 22); } },
+    { ms: 460, start(){ st.loaded = true; st.gap = G_OUT; }, step(k){ st.gap = G_OUT + (g0 - G_OUT)*ease(k); st.pose[st.cur] = heldAt(st); } },   // push it in through the hole
+    { ms: 140, step(k){ st.squeeze = 1 - ease(k); } },                                  // let go of the buttons: jaws grip
+    { ms: 160, start(){ this.c0 = st.cOut; }, step(k){ const dg = 1.5*ease(k); st.gap = g0 - dg; st.cOut = this.c0 - dg; st.pose[st.cur] = heldAt(st); } } ];   // the springs push it onto the cutter
+}
+function load(st){ if (busy()) return;
+  if (st.loaded) return ui.flash('铅笔已经夹好了');
+  const pen = st.pens[st.cur];
+  if (!pen || pen.stub) return ui.flash('两支铅笔都被摇成小短棍了');
+  if (pen.len < PEN_MIN) return ui.flash('这支只剩小短棍了，夹不住');
+  kPlay(ui, 'load', loadSegs(st), () => ui.flash('夹好了，弹簧把笔顶在刀上'));
+}
+// turn the crank n times; feed per turn while there is wood to cut; mad = thumb pushing the carriage past the stop
+function crankSegs(st, turns, mad = false){
+  const pen = st.pens[st.cur];
+  return [{ ms: turns*330, start(){ st.cutting = true; this.th = st.crank; this.last = 0; this.broke = 0; },
+    step(k){ const t = k*turns, dt = t - this.last; this.last = t;
+      if (st.fillD >= 1){ st.jam = true; st.cutting = false; return; }      // packed solid: the crank won't turn
+      st.crank += dt*2*Math.PI; st.psi = st.crank/2; st.spin = st.psi*R_RING/R_PIN; st.t = t;
+      let feed = 0;
+      if (st.gap > 0){ feed = Math.min(st.gap, dt*2.6); st.gap -= feed; pen.b = Math.max(0, Math.min(pen.b, B_FLAT) - feed); }
+      else if (mad && st.cOut > .5){ feed = Math.min(st.cOut - .5, dt*4.2); pen.len -= feed; this.broke += feed; }   // point snaps on the stop, the stub is cut again
+      st.cOut -= feed; st.fillD = Math.min(1, st.fillD + feed*.0105);
+      st.atStop = st.gap <= .001; st.pose[st.cur] = heldAt(st); },
+    end(){ st.cutting = false; } }];
+}
+function crank(st){ if (busy()) return;
+  if (st.jam) return ui.flash('笔屑盒满了，摇不动——先倒笔屑');
+  const segs = [];
+  if (!st.loaded){ const pen = st.pens[st.cur]; if (!pen || pen.stub || pen.len < PEN_MIN) return ui.flash('没有能削的铅笔了'); segs.push(...loadSegs(st)); }
+  const was = st.gap;
+  segs.push(...crankSegs(st, 8));
+  kPlay(ui, 'crank', segs, () => { if (st.jam) ui.flash('笔屑盒满了，摇不动——先倒笔屑');
+    else if (was > .01 || segs.length > 1) ui.flash('削尖了：笔尖顶到止笔挡，再摇就空转'); else ui.flash('已经顶到止笔挡了，再摇也是空转'); });
+}
+// take the pencil out of the jaws and lay it down / pick it up
+function unloadSegs(st, to){
+  return [{ ms: 140, step(k){ st.squeeze = ease(k); } },
+    { ms: 260, start(){ this.c0 = st.cOut; }, step(k){ st.cOut = this.c0 + (30 - this.c0)*ease(k); } },
+    { ms: 380, start(){ this.from = st.pose[st.cur]; this.to = inSharp(G_OUT); }, step(k){ st.pose[st.cur] = penLerp(this.from, this.to, ease(k)); } },
+    { ms: 160, start(){ st.loaded = false; }, step(k){ st.squeeze = 1 - ease(k); } },
+    { ms: 260, start(){ this.c0 = st.cOut; }, step(k){ st.cOut = this.c0*(1 - ease(k)); } },
+    to ? { ms: 480, start(){ this.from = st.pose[st.cur]; }, step(k){ st.pose[st.cur] = penArc(penLerp(this.from, to, ease(k)), k, 16); } } : null ].filter(Boolean);
+}
+function dumpShavings(st){ if (busy()) return;
+  if (st.fillD < .02) return ui.flash('笔屑盒是空的');
+  const p0 = () => ({ c: shAt((DRW.a0 + DRW.a1)/2 - 50, 0, (DRW.z0 + DRW.z1)/2), ax: kScl(DU, -1), ay: DV.slice(), az: [0, 0, 1] });
+  const over = dk(BIN.u + 4, BIN.v - 8, BH + BIN.h + 26);
+  const tilt = a => { const c = Math.cos(a), sn = Math.sin(a); return { ax: kScl(DU, -1), ay: kAdd(kScl(DV, c), [0, 0, sn]), az: kAdd(kScl(DV, -sn), [0, 0, c]) }; };
+  const before = st.fillD;
+  kPlay(ui, 'dump', [
+    { ms: 420, step(k){ st.dOut = 50*ease(k); } },
+    { ms: 520, start(){ st.dump = p0(); }, step(k){ const e = ease(k), c = kAdd(kLerp(p0().c, over, e), [0, 0, 10*Math.sin(Math.PI*k)]); st.dump = { c, ...tilt(0) }; } },
+    { ms: 360, step(k){ st.dump = { c: over, ...tilt(1.9*ease(k)) }; } },
+    { ms: 900, start(){ st.pouring = 1; this.f0 = st.fillD; this.b0 = st.fillB; }, step(k){ st.t = k*2; st.fillD = this.f0*(1 - k); st.fillB = Math.min(1, this.b0 + this.f0*.6*k); },
+      end(){ st.pouring = 0; st.fillD = 0; st.jam = false; } },
+    { ms: 360, step(k){ st.dump = { c: over, ...tilt(1.9*(1 - ease(k))) }; } },
+    { ms: 520, step(k){ const e = ease(k), c = kAdd(kLerp(over, p0().c, e), [0, 0, 10*Math.sin(Math.PI*k)]); st.dump = { c, ...tilt(0) }; }, end(){ st.dump = null; } },
+    { ms: 380, step(k){ st.dOut = 50*(1 - ease(k)); } } ], () => ui.flash(before > .9 ? '倒了满满一盒笔屑' : '笔屑倒进纸篓了'));
+}
+// write on the memo pad: a fresh needle point snaps off on the first stroke
+function tryWrite(st){ if (busy()) return;
+  if (st.hello) { st.hello = false; st.bits = []; }
+  const pen = st.pens[st.cur]; if (!pen || pen.gone) return ui.flash('没有铅笔了');
+  const segs = [];
+  if (st.loaded) segs.push(...unloadSegs(st, null));
+  const sk = HELLO, len = strokesLength(sk), at = p => ({ o: p, d: WRITE_D, roll: 0 });
+  segs.push({ ms: 520, start(){ this.from = st.pose[st.cur]; }, step(k){ st.pose[st.cur] = penArc(penLerp(this.from, at(sk[0][0]), ease(k)), k, 26); } });
+  segs.push({ ms: 10, end(){ if (pen.b < .6){ pen.b = 1.6; pen.len -= 1.6; st.snapped = true; st.bits.push({ u: -80 + st.bits.length*3, v: -22, a: 1 + st.bits.length });
+      const p = at(sk[0][0]).o; st.fly = { p: kAdd(p, [0, 0, 1]), a: 0 }; let tt = 0; ui.animate(dt => { tt += dt; st.fly.p = kAdd(st.fly.p, kScl(dkv(-20, 30, 40 - 160*tt), dt)); st.fly.a += dt*18; if (tt > .35){ st.fly = null; return false; } return true; }); }
+      else st.snapped = false; st.blunt = pen.b > 3; } });
+  segs.push({ ms: Math.max(700, len/34*1000), start(){ st.ans = 0; }, step(k){ st.ans = k*len; st.pose[st.cur] = at(traceStrokes(sk, st.ans).tip); }, end(){ st.ans = null; st.hello = true; pen.b += .3; } });
+  segs.push({ ms: 480, start(){ this.from = st.pose[st.cur]; }, step(k){ st.pose[st.cur] = penArc(penLerp(this.from, REST[st.cur], ease(k)), k, 14); } });
+  kPlay(ui, 'write', segs, () => ui.flash(st.snapped ? '刚削的笔尖太细太长，第一笔就断了' : (pen.b > 6 ? '笔是钝的，写出来粗粗的' : '写好了')));
+}
+// keep cranking with a thumb on the carriage: the point is forced against the stop, snaps, is cut again, and again
+function madCrank(st){ if (busy()) return;
+  if (st.jam) return ui.flash('笔屑盒满了，摇不动——先倒笔屑');
+  let pen = st.pens[st.cur];
+  if (!pen || pen.stub) return ui.flash('两支铅笔都被摇成小短棍了');
+  const segs = [];
+  if (!st.loaded){ if (pen.len < PEN_MIN) return ui.flash('只剩小短棍了，夹都夹不住'); segs.push(...loadSegs(st)); }
+  const len0 = pen.len;
+  // when the carriage reaches the face, pull it out again and re-grip further back on the pencil
+  for (let r = 0; r < 3; r++){
+    segs.push(...crankSegs(st, 6, true));
+    segs.push({ ms: 0, start(){}, end(){} });
+    segs.push({ ms: 360, start(){ this.c0 = st.cOut; this.c1 = Math.min(30, pen.len - st.gap - A_STOP - CAR.t - 3); this.on = !st.jam && this.c0 < 2 && this.c1 > this.c0 + 3; },
+      step(k){ if (!this.on) return; st.squeeze = k < .3 ? k/.3 : k > .8 ? (1 - k)/.2 : 1; st.cOut = this.c0 + (this.c1 - this.c0)*ease(Math.max(0, Math.min(1, (k - .3)/.5))); } });
+  }
+  kPlay(ui, 'mad', segs, () => {
+    const lost = Math.round(len0 - pen.len);
+    if (pen.len < PEN_MIN + 4){
+      const i = st.cur; pen.stub = true;
+      kPlay(ui, 'mad', unloadSegs(st, REST[i]), () => {
+        const next = st.pens.findIndex(p => !p.stub && !p.gone);
+        if (next >= 0) st.cur = next;
+        ui.flash(next >= 0 ? `摇掉了 ${lost} 毫米，削成小短棍夹不住了——换下一支` : '两支铅笔都被摇成小短棍了', 2800); });
+    } else ui.flash(st.jam ? '笔屑盒满了，摇不动——先倒笔屑' : `停不下来：又摇短了 ${lost} 毫米`, 2400); });
+}
+
+ui = mountFigure({
+  fig:'05', turn:'full', title:'手摇削笔机', size: DESK.size, center: DESK.center, palette:'tomato',
+  state:{ pens: [{ kind: 0, len: 142, b: 9 }, { kind: 1, len: 155, b: 30 }], cur: 0, pose: REST.map(p => ({ ...p })),
+    loaded: false, gap: 0, cOut: 0, squeeze: 0, crank: -Math.PI/2, psi: 0, spin: 0, t: 0, cutting: false, atStop: false,
+    fillD: .08, fillB: 0, dOut: 0, dump: null, pouring: 0, jam: false, hello: false, ans: null, bits: [], fly: null, blunt: false, snapped: false },
+  scene,
+  stats: st => { const pen = st.pens[st.cur]; return [ { label:'铅笔', value: Math.round(pen.len) + ' mm' }, { label:'笔屑盒', value: Math.round(st.fillD*100) + '%', small: true } ]; },
+  buttons:[
+    { label:'装铅笔', onClick: load },
+    { label:'摇', onClick: crank },
+    { label:'倒笔屑', onClick: dumpShavings },
+    { label:'削尖了试写', onClick: tryWrite },
+    { label:'停不下来一直摇', onClick: madCrank },
+  ],
+  acts:{ crank: st => crank(st), carriage: st => load(st) },
+  params:(st, q) => {
+    if (q.has('fill')) st.fillD = +q.get('fill');
+    if (q.has('bin')) st.fillB = +q.get('bin');
+    if (q.has('len')) st.pens[0].len = +q.get('len');
+    if (q.has('b')) st.pens[0].b = +q.get('b');
+    if (q.has('crank')){ st.crank = +q.get('crank'); st.psi = st.crank/2; st.spin = st.psi*R_RING/R_PIN; }
+    if (q.has('out')) st.cOut = +q.get('out');
+    if (q.has('drawer')) st.dOut = +q.get('drawer');
+    if (q.get('loaded') === '1'){ st.loaded = true; st.gap = q.has('gap') ? +q.get('gap') : Math.min(st.pens[0].b, B_FLAT); st.cOut = q.has('out') ? +q.get('out') : 20; st.pose[0] = inSharp(st.gap); }
+    if (q.get('cut') === '1'){ st.cutting = true; st.t = .3; }
+    if (q.get('hello') === '1') st.hello = true;
+  },
+});
+xrMount(() => ui, () => '');
+</script></body></html>

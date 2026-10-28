@@ -1,0 +1,490 @@
+// Fig. 11 多功能文具盒 — desk-scene object, ported from stationery/src/11-pencil-case.html by scripts/port-figures.mjs.
+// The figure's own code runs inside create(ctx): ctx.desk is its place on the shared desk (dk, dkv, DU, DV, desk*),
+// ctx.ui its ui (animate, invalidate, flash), ctx.play its one-at-a-time action lock; castShadow and labels are
+// collected by the scene.
+import { AZ_MAX, AZ_MIN, BOARD, C, CAM_B0, CAM_D, CAM_K, CAM_LIM, CAM_R, CAM_U, CAM_V, CERAMIC, CLEAR, CLIP_PFX, DARK, DESK_Z, Dv, GRAPHITE, HAND, INK, INK_K, INK_REF_VB, L, LIN, MAT, METAL, OX, OY, P, P0, PALS, PITCH, PITCH0, PX, PY, PZ, RC, RCZ, S, SH, SHADOW, SHADOW_K, SHADOW_LEN, SOFT, TURNS, VIEW, VIEW_NAMES, WOOD, YAW, YAW0, _clipN, act, arcUV, avg, axisFrame, axisRing, board, boardTop, box, boxMid, byDepth, camBasis, camDot, coaxOrder, coaxSeg, coilParts, cross, cyl, cylX, depthOf, dot, ease, ellUV, extrude, f, face, facing, farHalf, fill, filterFor, graphite, handGlyphs, handStrokes, hull, hullInk, ink, inkScale, kAdd, kAt, kLen, kLerp, kRng, kScl, line, loft, matOf, mix, nearArc, nearHalf, norm, obox, oboxPts, on, openShell, paperSheet, pd, rectUV, rod, rotV, rotXY, rrUV, sepOrder, setCam, setClipPrefix, setInk, setLight, setOrigin, shape, sp, step3, strokesLength, sub, tone, toneI, traceStrokes, tx, txM, txOn, txY, txZ, vis, yawTurn } from '../engine/index.js';
+
+/** Where this object's own frame sits on the desk (u along the front edge, v toward the student, mm from the
+ *  desk's centre; rot degrees). The 三八线 is u = 0: the student's half is u < 0. */
+export const PLACE = { u: 148, v: -192, rot: 0 };
+
+export function create(ctx) {
+  const { DK, DU, DV, dk, dkv, undk, deskTop, deskBoard, deskSheet, deskText, deskHand, deskBoxPts, deskBox, deskSetup } = ctx.desk;
+  const { kPlay, kBusy } = ctx.play;
+  const castShadow = ctx.castShadow, clipTo = ctx.clipTo, zhCallouts = ctx.labels;
+
+  /* Fig. 11 — The double-sided magnetic pencil case (双面文具盒) of a 1990s-2000s Chinese classroom: a moulded plastic box
+     with a lid on each face, each held shut by a magnet; a timetable printed inside the front lid, a mirror inside the back
+     one; push buttons along the front that let spring-loaded parts pop out: the sharpener drawer, the eraser drawer and a
+     pen stand. It lies along the far edge of the deskmate's half (u > 0): its drawers pop out clear of the 三八线 on one
+     end and of the paper piles' corner on the other; 1 unit = 1 mm.
+     The box has its own frame: x along its length (to the right), y toward the front (the buttons' side), z up from the
+     back lid's outside; it can turn over on the desk (flip), so everything is drawn through pcP / frames.
+
+     How it really works (each button is one of these):
+     1. Front lid: hinged along the back top edge on a steel pin through moulded knuckles. A small magnet in the lid's front
+        edge sits on a steel plate set in the front wall: pull the lid and it lets go; let it fall shut and the magnet pulls
+        it down the last few millimetres with the "pa" everyone remembers.
+     2. Back lid: the same on the other face, hinged along the front bottom edge so that, turned over, it opens away from you.
+        To get at it you turn the whole box over; whatever lay inside slides onto the divider.
+     3. Side buttons: each button is a short plunger through the front wall with a return spring; behind it a latch lever
+        on a pin holds a hook in a notch on the drawer (or under the pen stand's front edge). Press: the lever turns, the hook
+        leaves the notch, and a compressed spring throws the drawer out of the end of the box (the sharpener drawer full of
+        shavings, the eraser drawer) or a torsion spring on the stand's hinge flips the pen stand up with the pens on it.
+        Push the part back in and the hook rides over the notch and clicks into it again.
+     Student life: pressing every button at once ("transformer" mode), clacking the magnetic lid open and shut in class,
+     PE circled on the timetable, a note hidden on the secret back side.
+
+     Parts:
+     CASE     body (end bays, front compartment, divider, back compartment) . front lid . back lid . 12 hinge knuckles .
+              2 hinge pins . lid prints (rocket and slogan outside, timetable inside; times table outside the back, mirror inside)
+     CATCHES  2 lid magnets . 2 steel plates
+     BUTTONS  3 caps . 3 plungers . 3 return springs . 3 latch levers on their pins
+     DRAWERS  sharpener drawer (front plate, tray, sharpener block, blade, its screw, shavings) . eraser drawer (front plate,
+              tray, eraser, crumbs) . 2 ejector springs
+     STAND    pen stand (tray, hinge pin, 2 torsion springs, front hook, 2 elastic straps) . pencil . gel pen
+     LOOSE    15 cm ruler in the front compartment . folded note, stickers, spare eraser in the back */
+
+  /* ---------- the box's own frame on the desk ---------- */
+  const BH = ctx.deskZ;
+  const PC_U = 0, PC_V = 6, PC_TH = -3*Math.PI/180, PC_ZC = 18;
+  const X1 = 120, Y1 = 40, ZB = 3, ZT = 33, ZTOP = 36;            // half length, half depth, body bottom/top, lid top
+  const CX = 86, CY = 38, ZF = 18, ZDIV = 17;                        // compartment half length/depth, front floor, divider underside
+  const POP = 16, LID_OPEN = 105, TRAY_UP = 28;
+  const BTN = { L: -104, M: 0, R: 104 };
+  let PC = { o: [0, 0, 0], ex: [1, 0, 0], ey: [0, 1, 0], ez: [0, 0, 1] };
+  function pcFrame(st){
+    const t = PC_TH, ex = dkv(Math.cos(t), Math.sin(t)), ey0 = dkv(-Math.sin(t), Math.cos(t)), ez0 = [0, 0, 1], a = st.flip;
+    const ey = kAdd(kScl(ey0, Math.cos(a)), kScl(ez0, Math.sin(a))), ez = kAdd(kScl(ey0, -Math.sin(a)), kScl(ez0, Math.cos(a)));
+    const c = dk(PC_U, PC_V, BH + PC_ZC + st.lift);
+    PC = { o: kAdd(c, kScl(ez, -PC_ZC)), ex, ey, ez };
+  }
+  // a frame is { o, ex, ey, ez }; fP gives a point in it
+  const fP = (F, x, y, z) => [F.o[0] + F.ex[0]*x + F.ey[0]*y + F.ez[0]*z, F.o[1] + F.ex[1]*x + F.ey[1]*y + F.ez[1]*z, F.o[2] + F.ex[2]*x + F.ey[2]*y + F.ez[2]*z];
+  const pcP = (x, y, z) => fP(PC, x, y, z);
+  const fMove = (F, x, y, z) => ({ ...F, o: fP(F, x, y, z) });
+  // frame turned about its own x axis by angle a (radians) around the line y = y0, z = z0
+  const fHinge = (F, y0, z0, a) => ({ o: fP(F, 0, y0, z0), ex: F.ex, ey: kAdd(kScl(F.ey, Math.cos(a)), kScl(F.ez, Math.sin(a))), ez: kAdd(kScl(F.ey, -Math.sin(a)), kScl(F.ez, Math.cos(a))) });
+  const fBoxPts = (F, x0, y0, z0, x1, y1, z1) => oboxPts(fP(F, (x0 + x1)/2, (y0 + y1)/2, (z0 + z1)/2), F.ex, F.ey, F.ez, (x1 - x0)/2, (y1 - y0)/2, (z1 - z0)/2);
+  const fBox = (F, x0, y0, z0, x1, y1, z1, M, w = .8, shade = toneI) => obox(fP(F, (x0 + x1)/2, (y0 + y1)/2, (z0 + z1)/2), F.ex, F.ey, F.ez, (x1 - x0)/2, (y1 - y0)/2, (z1 - z0)/2, M, shade, w);
+  const fRect = (F, x0, y0, x1, y1, z) => rectUV(x0, y0, x1, y1).map(([x, y]) => fP(F, x, y, z));
+  const fText = (F, x, y, z, str, size, col = INK, weight = 800, anchor = 'middle') => txOn(fP(F, x, y, z), F.ex, F.ez, str, size, col, weight, anchor);
+  const pcKai = (p, u, n, str, size, col = INK) => `<text transform="${txM(P(...p), Dv(...u), Dv(...cross(n, u)))}" font-size="${size}" fill="${col}" text-anchor="middle" font-family="'Kaiti SC','STKaiti','KaiTi',serif" font-weight="700">${str}</text>`;
+  const neg = v => kScl(v, -1);
+  // one face of a box in a frame: the four corners, its outward normal
+  function fFace(F, b, axis, sign){
+    const [x0, y0, z0, x1, y1, z1] = b, c = [[x0, x1], [y0, y1], [z0, z1]], k = axis, i = (k + 1) % 3, j = (k + 2) % 3, at = sign > 0 ? 1 : 0;
+    const q = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([a, bb]) => { const v = [0, 0, 0]; v[k] = c[k][at]; v[i] = c[i][a]; v[j] = c[j][bb]; return fP(F, ...v); });
+    return { q, n: kScl([F.ex, F.ey, F.ez][k], sign) };
+  }
+
+  /* ---------- materials ---------- */
+  const PEN_M = matOf('#5a82c6'), PENCIL_M = matOf('#f4b829'), RUB = matOf('#f3a6bb'), STRAP = matOf('#d14a3a');
+  const MAG = matOf('#4a4f55'), SHAV = matOf('#e2b27a');
+  const pcIn = m => ({ l: mix(m.l, '#ffffff', .45), m: mix(m.m, '#ffffff', .4), d: mix(m.d, '#ffffff', .3) });
+
+  /* ---------- lids ---------- */
+  const lidFront = st => fHinge(PC, -Y1, ZT + 1.5, st.la*Math.PI/180);            // its y runs 0..80 from the hinge, z -1.5..1.5
+  const lidBack = st => fHinge({ ...PC, ey: neg(PC.ey), ez: neg(PC.ez) }, -Y1, -1.5, st.lb*Math.PI/180);   // mirror image on the back face
+  const TT = [ ['语文', '数学', '英语', '体育', '美术', '自习'], ['数学', '语文', '科学', '音乐', '体育', '班会'], ['英语', '数学', '语文', '美术', '品德', '自习'],
+    ['语文', '体育', '数学', '英语', '科学', '音乐'], ['数学', '英语', '语文', '体育', '劳动', '自习'] ];
+  function knuckles(F, y, z, own){   // hinge knuckles along the edge; own = which ones belong to this part (0 body / 1 lid)
+    let s = ''; const xs = [-108, -72, -36, 0, 36, 72, 108];
+    const ordered = vis(F.ex) ? xs : xs.slice().reverse();
+    ordered.forEach((x, i) => { if ((xs.indexOf(x) % 2) !== own) return; s += rod(fP(F, x - 15, y, z), fP(F, x + 15, y, z), 2.3, lidKnM, toneI, .9, 2.3, 14); });
+    return s;
+  }
+  let lidKnM = MAT.plastic;
+  // the front lid: slab, knuckles, the print outside (rocket, slogan) or the timetable inside
+  function frontLidSvg(st, m){
+    const F = lidFront(st), out = F.ez, inn = neg(F.ez);
+    let s = fBox(F, -X1, 0, -1.5, X1, 2*Y1, 1.5, m, 1.2, tone);
+    if (vis(out)){ const z = 1.52;
+      const at = (x, d) => fP(F, x, d, z);
+      // rocket heading right, stars, slogan
+      const body = Array.from({ length: 24 }, (_, i) => { const a = i/24*2*Math.PI; return at(-62 + 30*Math.cos(a), 44 + 10*Math.sin(a)*Math.pow(Math.abs(Math.cos(a/2 + .3)), .2)); });
+      s += shape([at(-84, 34), at(-74, 40), at(-76, 30)], '#ef6a4c', .8) + shape([at(-84, 54), at(-74, 48), at(-76, 58)], '#ef6a4c', .8);
+      s += shape([at(-92, 44), at(-80, 40), at(-80, 48)], '#f4b829', .7);
+      s += shape(body, '#fffdf6', 1) + shape(Array.from({ length: 14 }, (_, i) => at(-52 + 5*Math.cos(i/14*6.283), 44 + 5*Math.sin(i/14*6.283))), '#76a0e2', .8);
+      for (const [x, d, r] of [[-20, 66, 4], [8, 20, 3], [40, 64, 3.6], [88, 22, 4.4], [100, 64, 2.8], [-100, 70, 2.6]]){
+        const star = Array.from({ length: 10 }, (_, i) => { const a = i/10*2*Math.PI - Math.PI/2, rr = i % 2 ? r*.45 : r; return at(x + rr*Math.cos(a), d + rr*Math.sin(a)); });
+        s += shape(star, '#fff4d6', .6); }
+      s += txOn(at(48, 46), F.ex, out, '好好学习 天天向上', 8, '#ffffff', 800); }
+    if (vis(inn)){ s += timetable(F); }
+    return s;
+  }
+  // inside the front lid, upright when the lid stands open: reading along x, "up" toward the lid's free edge
+  function timetable(F){
+    const z = -1.52, n = neg(F.ez), at = (x, d) => fP(F, x, d, z), u = F.ex;
+    const tx = (x, d, str, size, col = INK, w = 700) => txOn(at(x, d), u, n, str, size, col, w, 'middle');
+    let s = fill(pd([at(-108, 4), at(108, 4), at(108, 76), at(-108, 76)]), '#fffdf6') + ink(pd([at(-108, 4), at(108, 4), at(108, 76), at(-108, 76)]), .7);
+    s += fill(pd([at(-108, 66), at(108, 66), at(108, 76), at(-108, 76)]), '#f3a6bb');
+    s += tx(-84, 68.6, '课程表', 6, INK, 800);
+    const days = ['一', '二', '三', '四', '五'], col0 = -60, cw = 33.6, rh = 9.6;
+    days.forEach((dname, i) => { s += tx(col0 + cw*(i + .5), 68.6, '星期' + dname, 5, INK, 800); });
+    let grid = '';
+    for (let r = 0; r <= 6; r++) grid += pd([at(-108, 8 + rh*r), at(108, 8 + rh*r)], false);
+    for (let i = 0; i <= 5; i++) grid += pd([at(col0 + cw*i, 8), at(col0 + cw*i, 66)], false);
+    s += `<path d="${grid}" fill="none" stroke="#9fb6d6" stroke-width=".7"/>`;
+    for (let r = 0; r < 6; r++){ const d = 8 + rh*(5 - r) + 2.6;
+      s += tx(-84, d, `第${r + 1}节`, 4.4, '#5d564c', 700);
+      for (let i = 0; i < 5; i++){ const sub = TT[i][r], x = col0 + cw*(i + .5);
+        s += tx(x, d, sub, 5, sub === '体育' ? '#c43d2c' : '#2c2a26', 800);
+        if (sub === '体育'){   // circled in red marker, twice round, a little crooked
+          const ring = Array.from({ length: 30 }, (_, k) => { const a = k/29*2.2*Math.PI + .4; return at(x + 12*Math.cos(a) + .6*k/29, d + 1.7 + 4.4*Math.sin(a) + .5*Math.sin(3*a)); });
+          s += `<path d="${pd(ring, false)}" fill="none" stroke="#e2483d" style="stroke-width:.9" stroke-linecap="round" opacity=".9"/>`; } } }
+    return s;
+  }
+  // the back lid: times table outside, a mirror inside
+  function backLidSvg(st, m){
+    const F = lidBack(st), out = F.ez, inn = neg(F.ez);
+    let s = fBox(F, -X1, 0, -1.5, X1, 2*Y1, 1.5, m, 1.2, tone);
+    if (vis(out)){ const z = 1.52, at = (x, d) => fP(F, x, d, z);
+      s += fill(pd([at(-114, 3), at(114, 3), at(114, 77), at(-114, 77)]), mix(m.l, '#ffffff', .55)) + ink(pd([at(-114, 3), at(114, 3), at(114, 77), at(-114, 77)]), .6);
+      s += txOn(at(0, 70.5), F.ex, out, '九九乘法表', 5.4, INK, 800);
+      for (let a = 1; a <= 9; a++) for (let b = a; b <= 9; b++)
+        s += txOn(at(-102 + (b - 1)*25.5, 63 - (a - 1)*6.8), F.ex, out, `${a}×${b}=${a*b}`, 3.6, '#2c2a26', 700); }
+    if (vis(inn)){ const z = -1.52, at = (x, d) => fP(F, x, d, z);
+      s += shape([at(-70, 10), at(70, 10), at(70, 72), at(-70, 72)], '#b8c4c8', .9) + fill(pd([at(-67, 13), at(67, 13), at(67, 69), at(-67, 69)]), '#dbe8ee');
+      s += `<path d="${pd([at(-40, 16), at(-10, 66)], false)}M${pd([at(-26, 16), at(4, 66)], false).slice(1)}" stroke="#ffffff" stroke-width="2.4" opacity=".7" stroke-linecap="round"/>`; }
+    return s;
+  }
+  const lidPts = F => fBoxPts(F, -X1, 0, -1.5, X1, 2*Y1, 1.5);
+
+  /* ---------- the pen stand (front compartment): a tray hinged at its back edge, pens held by elastic straps ---------- */
+  const trayF = st => fHinge(PC, -18, ZF + 1, st.tray*Math.PI/180);
+  function penAlong(F, y, z, kind){   // a pencil or a gel pen lying along x on frame F at (y, z = its axis)
+    const o = fP(F, -74, y, z), d = F.ex, items = [];
+    const seg = (name, g) => items.push({ name, s0: g.s0, s1: g.s1, svg: coaxSeg(o, d, g) });
+    if (kind === 'pencil'){
+      seg('tip', { s0: 0, s1: 3, r0: .35, r1: 1.1, M: MAT.graphite, n: 10, w: .6, shade: toneI });
+      seg('wood', { s0: 3, s1: 17, r0: 1.1, r1: 3.5, M: MAT.wood, n: 16, w: .8, shade: toneI });
+      seg('hex', { s0: 17, s1: 140, r0: 3.7, M: PENCIL_M, n: 6, w: 1, edges: .5, shade: toneI });
+      seg('ferrule', { s0: 140, s1: 146, r0: 3.75, M: MAT.steel, n: 16, w: .8, shade: toneI });
+      seg('rubber', { s0: 146, s1: 152, r0: 3.4, M: RUB, n: 16, w: .8, shade: toneI });
+    } else {
+      seg('tip', { s0: 0, s1: 2.4, r0: .4, r1: .9, M: MAT.steel, n: 10, w: .6, shade: toneI });
+      seg('cone', { s0: 2.4, s1: 16, r0: 1, r1: 4.2, M: MAT.clear, n: 18, w: .8, shade: toneI });
+      seg('barrel', { s0: 16, s1: 138, r0: 4.6, M: PEN_M, n: 18, w: 1, shade: toneI });
+      seg('knob', { s0: 138, s1: 145, r0: 3, M: MAT.plastic, n: 16, w: .8, shade: toneI });
+    }
+    let s = coaxOrder(d, items);
+    if (kind === 'pen'){ const [e1, e2] = axisFrame(d); const up = vis(F.ez) ? F.ez : F.ez;
+      const clip = obox(fP(F, -74 + 120, y, z + 5.3), F.ex, F.ey, F.ez, 14, 1.4, .35, MAT.steel, toneI, .7);
+      s = vis(F.ez) ? s + clip : clip + s; }
+    return s;
+  }
+  function traySvg(st){
+    const F = trayF(st), top = vis(F.ez), parts = [];
+    const plate = fBox(F, -84, 0, 0, 84, 52, 2, matOf('#f7f5ee'), .9);
+    const pencil = penAlong(F, 14, 2 + 3.7, 'pencil'), pen = penAlong(F, 36, 2 + 4.6, 'pen');
+    const items = vis(F.ey) ? pencil + pen : pen + pencil;
+    // two elastic straps across, up over each pen and down between them
+    let straps = '';
+    for (const x of [-40, 44]){ const prof = [[3, 2.1], [8, 2.6], [10.5, 8], [14, 9.7], [17.5, 8], [20, 2.6], [30, 2.6], [32, 9.6], [36, 11.4], [40, 9.6], [42, 2.6], [49, 2.1]];
+      const a = prof.map(([y, z]) => fP(F, x - 3, y, z)), b = prof.map(([y, z]) => fP(F, x + 3, y, z));
+      for (let i = 0; i < prof.length - 1; i++){ const q = [a[i], a[i + 1], b[i + 1], b[i]], nr = norm(cross(sub(q[1], q[0]), sub(q[3], q[0])));
+        straps += face(pd(q), toneI(vis(nr) ? nr : neg(nr), STRAP)); }
+      straps += ink(pd(a, false), .6) + ink(pd(b, false), .6); }
+    return top ? plate + items + straps : straps + items + plate;
+  }
+  function rulerSvg(F){   // a clear 15 cm ruler lying on a floor frame F (z = floor)
+    let s = `<g opacity=".78">${fBox(F, -80, -36, 0, 80, -22, 1.6, MAT.clear, .8)}</g>`;
+    if (!vis(F.ez)) return s;
+    let t = ''; for (let mm = 0; mm <= 150; mm += 5){ const x = -75 + mm, len = mm % 10 ? 2 : 3.6; t += pd([fP(F, x, -22.4, 1.62), fP(F, x, -22.4 - len, 1.62)], false); }
+    s += `<path d="${t}" fill="none" stroke="${INK}" stroke-width=".5"/>`;
+    for (let c = 0; c <= 15; c += 5) s += txOn(fP(F, -75 + 10*c, -28.5, 1.62), F.ex, F.ez, String(c), 3.2, INK, 700);
+    return s;
+  }
+
+  /* ---------- the end drawers ---------- */
+  // side +1 = sharpener drawer at the right end, -1 = eraser drawer at the left; p = how far it is out (mm)
+  function drawerParts(st, side){
+    const p = POP*(side > 0 ? st.popR : st.popL), F = fMove(PC, side*p, 0, 0), sx = x => side*x;
+    const x0 = Math.min(sx(100), sx(118)), x1 = Math.max(sx(100), sx(118)), px0 = Math.min(sx(118), sx(120)), px1 = Math.max(sx(118), sx(120));
+    return { F, p, x0, x1, px0, px1 };
+  }
+  // the part of the drawer that is out of the box (the rest is inside the body): tray sides, floor, contents, front plate
+  function drawerOut(st, side, m, cut = true){
+    const { F, p, x0, x1, px0, px1 } = drawerParts(st, side);
+    const lim = side > 0 ? X1 - p : -X1 + p;                       // the end wall's plane, in the drawer's frame
+    const a0 = cut ? (side > 0 ? Math.max(x0, lim) : x0) : x0, a1 = cut ? (side > 0 ? x1 : Math.min(x1, lim)) : x1;
+    const IN = pcIn(m);
+    let s = '';
+    const showTray = a1 - a0 > .2;
+    const up = vis(F.ez);
+    if (showTray){
+      const walls = [];
+      // far side wall inner face, floor, contents, near side wall, as seen from above
+      const inner = (y, sign) => { const q = [fP(F, a0, y, 21), fP(F, a1, y, 21), fP(F, a1, y, 28), fP(F, a0, y, 28)], n = kScl(F.ey, sign); return vis(n) ? fill(pd(q), toneI(n, IN)) : ''; };
+      if (up){ s += inner(-30, 1) + inner(30, -1);
+        s += fill(pd(fRect(F, a0, -30, a1, 30, 21)), IN.l);
+        s += clipTo(fRect(F, a0, -30, a1, 30, 28.5), drawerContents(F, side)); }
+      s += fBox(F, a0, -32, 19, a1, -30, 28, m, .7) + fBox(F, a0, 30, 19, a1, 32, 28, m, .7);
+      if (!up) s += fBox(F, a0, -30, 19, a1, 30, 21, m, .7);
+    }
+    // the front plate (its outer face carries the sharpener's hole or the eraser icon)
+    let plate = fBox(F, px0, -34, 6, px1, 34, 30, m, 1);
+    const out = kScl(F.ex, side);
+    if (vis(out)){ const xp = side > 0 ? px1 + .02 : px0 - .02;
+      if (side > 0){ const hole = Array.from({ length: 18 }, (_, i) => fP(F, xp, 8*Math.cos(i/18*6.283), 18 + 8*Math.sin(i/18*6.283)));
+        const bore = Array.from({ length: 18 }, (_, i) => fP(F, xp, 3.6*Math.cos(i/18*6.283), 18 + 3.6*Math.sin(i/18*6.283)));
+        plate += shape(hole, MAT.steel.m, .8) + fill(pd(bore), '#1d1a16') + txOn(fP(F, xp, -20*side, 9), kScl(F.ey, -side), out, '削', 5.4, INK, 800); }
+      else plate += txOn(fP(F, xp, 0, 15.5), kScl(F.ey, -side), out, '橡皮', 6, INK, 800); }
+    return { tray: s, plate, F };
+  }
+  function drawerContents(F, side){
+    let s = '';
+    if (side > 0){   // sharpener block with its blade by the plate, shavings in a heap
+      s += fBox(F, 106, -10, 21, 117, 10, 27, matOf('#9aa0a3'), .7) + fBox(F, 106.5, -6, 27, 116, 6, 27.5, MAT.steel, .5);
+      const rnd = kRng(5);
+      for (let i = 0; i < 9; i++){ const cx = 101 + rnd()*14, cy = -26 + rnd()*44, r = 2.6 + rnd()*2.2, a0 = rnd()*6;
+        const pts = Array.from({ length: 12 }, (_, k) => { const a = a0 + k/11*4.6, rr = r*(1 - .55*k/11); return fP(F, cx + rr*Math.cos(a), cy + rr*Math.sin(a), 21.6 + .2*k); });
+        s += `<path d="${pd(pts, false)}" fill="none" stroke="#a86b3a" style="stroke-width:2" stroke-linecap="round"/><path d="${pd(pts, false)}" fill="none" stroke="${['#f4b829', '#ef6a4c', '#76a0e2'][i % 3]}" style="stroke-width:.7" stroke-linecap="round"/>`; }
+      let dust = ''; for (let i = 0; i < 26; i++){ const x = 101 + rnd()*15, y = -28 + rnd()*56; dust += pd([fP(F, x, y, 21.05), fP(F, x + .4, y + .3, 21.05)], false); }
+      s += `<path d="${dust}" stroke="#4c4e55" stroke-width="1" stroke-linecap="round"/>`;
+    } else {
+      s += fBox(F, -114, -16, 21, -104, 14, 27, MAT.eraser, .8);
+      if (vis(F.ez)) s += txOn(fP(F, -109, -1, 27.02), F.ey, F.ez, '4B', 4, '#5a82c6', 800);
+      const rnd = kRng(9); let cr = ''; for (let i = 0; i < 14; i++){ const x = -116 + rnd()*14, y = -28 + rnd()*56; cr += pd([fP(F, x, y, 21.1), fP(F, x + .8, y + .5, 21.1)], false); }
+      s += `<path d="${cr}" stroke="#bdb5a3" stroke-width="1.6" stroke-linecap="round"/>`;
+    }
+    return s;
+  }
+
+  /* ---------- the body ---------- */
+  function bodySvg(st, m, withContents){
+    const B = [-X1, -Y1, ZB, X1, Y1, ZT], IN = pcIn(m), frontOpen = st.la > 1.5 && vis(PC.ez), backOpen = st.lb > 1.5 && vis(neg(PC.ez));
+    let s = '';
+    // an open compartment: far inner walls, floor, what lies in it
+    const comp = (zFloor, zRim, sign, contents) => {
+      let c = '';
+      for (const [axis, sgn, at] of [[0, 1, -CX], [0, -1, CX], [1, 1, -CY], [1, -1, CY]]){
+        const n = kScl(axis ? PC.ey : PC.ex, sgn);
+        if (!vis(n)) continue;
+        const q = axis ? [pcP(-CX, at, zFloor), pcP(CX, at, zFloor), pcP(CX, at, zRim), pcP(-CX, at, zRim)] : [pcP(at, -CY, zFloor), pcP(at, CY, zFloor), pcP(at, CY, zRim), pcP(at, -CY, zRim)];
+        c += fill(pd(q), toneI(n, IN)); }
+      c += fill(pd(fRect(PC, -CX, -CY, CX, CY, zFloor)), toneI(kScl(PC.ez, sign), IN));
+      return c + contents; };
+    if (frontOpen) s += comp(ZF, ZT, 1, withContents ? frontContents(st) : '');
+    if (backOpen) s += comp(ZDIV, ZB, -1, withContents ? backContents(st) : '');
+    // outer faces: ends (with the drawer openings), front (button holes), back, and the top / bottom rims
+    for (const [axis, sgn] of [[0, 1], [0, -1], [1, 1], [1, -1]]){
+      const { q, n } = fFace(PC, B, axis, sgn); if (!vis(n)) continue;
+      s += fill(pd(q), tone(n, m));
+      if (axis === 0){ const p = sgn > 0 ? st.popR : st.popL, x = sgn*X1;
+        const op = [pcP(x, -34, 6), pcP(x, 34, 6), pcP(x, 34, 30), pcP(x, -34, 30)];
+        s += p > .01 ? fill(pd(op), '#2a2522') + ink(pd(op), .7) : ink(pd(op), .6); }
+      if (axis === 1 && sgn > 0) for (const bx of Object.values(BTN)) s += shape([pcP(bx - 7, Y1, 14), pcP(bx + 7, Y1, 14), pcP(bx + 7, Y1, 24), pcP(bx - 7, Y1, 24)], '#2a2522', .6);
+      s += ink(pd(q), 1);
+    }
+    for (const [sgn, z, open] of [[1, ZT, frontOpen], [-1, ZB, backOpen]]){
+      const n = kScl(PC.ez, sgn); if (!vis(n)) continue;
+      const outer = fRect(PC, -X1, -Y1, X1, Y1, z);
+      if (open){ const hole = fRect(PC, -CX, -CY, CX, CY, z);
+        s += `<path d="${pd(outer)}${pd(hole)}" fill="${tone(n, m)}" fill-rule="evenodd"/>` + ink(pd(outer), 1) + ink(pd(hole), 1.1); }
+      else s += fill(pd(outer), tone(n, m)) + ink(pd(outer), 1);
+    }
+    return s + hullInk(fBoxPts(PC, ...B), 2.4);
+  }
+  function frontContents(st){
+    const floor = fMove(PC, 0, 0, ZF), ruler = rulerSvg(floor), tray = traySvg(st);
+    return vis(PC.ey) ? ruler + tray : tray + ruler;
+  }
+  // the back compartment's loose things lie on whichever face is underneath: the back lid, or (turned over) the divider
+  function looseF(st){ return st.flip > Math.PI/2 ? { ...fMove(PC, 0, 0, ZDIV), ey: neg(PC.ey), ez: neg(PC.ez) } : fMove(PC, 0, 0, ZB); }
+  function backContents(st){
+    const F = looseF(st), up = vis(F.ez);
+    if (!up) return '';
+    // folded note, stickers, a spare eraser
+    const a = .12, ca = Math.cos(a), sa = Math.sin(a), at = (x, y, z) => fP(F, -36 + x*ca - y*sa, 2 + x*sa + y*ca, z);
+    const note = [at(-20, -14, .3), at(20, -14, .3), at(20, 14, .3), at(-20, 14, .3)];
+    let s = shape(note, '#fffdf6', .8) + `<path d="${pd([at(0, -14, .32), at(0, 14, .32)], false)}" stroke="#cfc6b2" stroke-width=".7"/>`;
+    s += pcKai(at(0, 2, .34), norm(sub(at(1, 0, 0), at(0, 0, 0))), F.ez, '放学一起走？', 5.4, '#2c2a26');
+    for (const [x, y, c] of [[20, -18, '#ef6a4c'], [34, -6, '#f4b829'], [26, 10, '#76a0e2']]){
+      const pts = Array.from({ length: 10 }, (_, i) => { const t = i/10*2*Math.PI - Math.PI/2, r = i % 2 ? 2.4 : 5.2; return fP(F, x + r*Math.cos(t), y + r*Math.sin(t), .2); });
+      s += shape(Array.from({ length: 16 }, (_, i) => fP(F, x + 7*Math.cos(i/16*6.283), y + 7*Math.sin(i/16*6.283), .15)), '#fffdf6', .6) + shape(pts, c, .5); }
+    s += fBox(F, 56, -24, 0, 76, -12, 7, MAT.eraser, .8);
+    return s;
+  }
+  function buttonsSvg(st){
+    let s = '';
+    const xs = vis(PC.ex) ? ['L', 'M', 'R'] : ['R', 'M', 'L'];
+    for (const k of xs){ const bx = BTN[k], depth = st.btn[k], out = 2.6 - 2.2*depth;
+      s += act('btn', fBox(PC, bx - 6, Y1, 15, bx + 6, Y1 + out, 23, matOf('#fff4d6'), .9), `data-b="${k}"`);
+      if (vis(PC.ey)) s += txOn(pcP(bx, Y1 + out + .03, 17.4), PC.ex, PC.ey, k === 'L' ? '擦' : k === 'M' ? '笔' : '削', 5.2, k === 'M' ? '#5a82c6' : '#c43d2c', 800); }
+    return s;
+  }
+
+  /* ---------- see-through: magnets, hinge pins, buttons and latches, springs ---------- */
+  function mechSvg(st, m){
+    const parts = [], put = (at, svg) => parts.push({ at, svg });
+    const LF = lidFront(st), LB = lidBack(st);
+    // magnets in the lids' free edges and the steel plates they meet
+    put(fP(LF, 0, 76, 0), fBox(LF, -6, 74, -1.2, 6, 78, 1.2, MAG, .7) + fBox(LF, -6, 74, 1.2, 0, 78, 1.3, matOf('#e2483d'), .4));
+    put(pcP(0, 38.5, 31.7), fBox(PC, -7, 37, 30.4, 7, 39.6, 32.9, MAT.steel, .7));
+    put(fP(LB, 0, 76, 0), fBox(LB, -6, 74, -1.2, 6, 78, 1.2, MAG, .7) + fBox(LB, -6, 74, 1.2, 0, 78, 1.3, matOf('#5a82c6'), .4));
+    put(pcP(0, -38.5, 4.3), fBox(PC, -7, -39.6, 3.1, 7, -37, 5.6, MAT.steel, .7));
+    // hinge pins through the knuckles
+    put(pcP(0, -Y1, ZT + 1.5), rod(pcP(-118, -Y1, ZT + 1.5), pcP(118, -Y1, ZT + 1.5), .9, MAT.steel, toneI, .7, .9, 10));
+    put(pcP(0, Y1, 1.5), rod(pcP(-118, Y1, 1.5), pcP(118, Y1, 1.5), .9, MAT.steel, toneI, .7, .9, 10));
+    // buttons: plunger through the front wall, return spring, latch lever on its pin with the hook
+    for (const k of ['L', 'M', 'R']){ const bx = BTN[k], d = st.btn[k], side = k === 'L' ? -1 : k === 'R' ? 1 : 0;
+      put(pcP(bx, 35, 19), fBox(PC, bx - 1.6, 33.5 - 2.2*d, 17.6, bx + 1.6, Y1, 20.4, MAT.plastic, .6)
+        + coilParts(pcP(bx + 2.8, 0, 19), PC.ey, 34, 38, 1.1, 4, MAT.steel.l, .35).far + coilParts(pcP(bx + 2.8, 0, 19), PC.ey, 34, 38, 1.1, 4, MAT.steel.l, .35).near);
+      const ang = .32*d, pivot = side ? bx - side*10 : bx - 9, len = side ? 16 : 18;
+      const LV = { o: pcP(pivot, 32, 19), ex: kAdd(kScl(PC.ex, Math.cos(ang)*(side || 1)), kScl(PC.ey, -Math.sin(ang))), ey: kAdd(kScl(PC.ey, Math.cos(ang)), kScl(PC.ex, Math.sin(ang)*(side || 1))), ez: PC.ez };
+      put(pcP(bx, 32, 19), fBox(LV, -2, -1.1, -1.6, len, 1.1, 1.6, matOf('#76a0e2'), .6) + fBox(LV, len - 3, -3.4, -1.6, len, -1.1, 1.6, matOf('#76a0e2'), .6)
+        + rod(pcP(pivot, 32, 16), pcP(pivot, 32, 22), .9, MAT.steel, toneI, .5, .9, 10)); }
+    // ejector springs behind the drawers (compressed while they are in)
+    for (const side of [-1, 1]){ const p = POP*(side > 0 ? st.popR : st.popL), sp = coilParts(pcP(0, 0, 13), kScl(PC.ex, side), 88, 100 + p, 4, 7, MAT.steel.l, .5);
+      put(pcP(side*(94 + p/2), 0, 13), sp.far + sp.near); }
+    // the drawers themselves, whole, wherever they are
+    for (const side of [-1, 1]){ const d = drawerOut(st, side, m, false); put(fP(d.F, side*109, 0, 18), d.tray + d.plate); }
+    // the pen stand's hinge pin and torsion springs, its front hook
+    const TF = trayF(st);
+    put(pcP(0, -18, ZF + 1), rod(pcP(-84, -18, ZF + 1), pcP(84, -18, ZF + 1), .8, MAT.steel, toneI, .6, .8, 10));
+    for (const x of [-60, 60]){ const sp = coilParts(pcP(x - 3, -18, ZF + 1), PC.ex, 0, 6, 2.4, 4, MAT.steel.l, .45); put(pcP(x, -18, ZF + 2), sp.far + sp.near); }
+    put(fP(TF, 0, 51, -1.5), fBox(TF, -3, 49, -3.5, 3, 52, 0, matOf('#76a0e2'), .6));
+    return byDepth(parts);
+  }
+
+  /* ---------- scene ---------- */
+  const boxPtsAll = st => [...fBoxPts(PC, -X1, -Y1, ZB, X1, Y1, ZT), ...lidPts(lidFront(st)), ...lidPts(lidBack(st)),
+    ...[-1, 1].flatMap(s => { const d = drawerParts(st, s); return d.p > .5 ? fBoxPts(d.F, d.x0, -34, 6, d.px1, 34, 30) : []; })];
+  function scene(st, m){
+    pcFrame(st);
+    lidKnM = m;
+    const k = ease(st.xr || 0);
+    let s = castShadow(boxPtsAll(st), BH);
+    // body (with whatever lies in an open compartment), buttons on the front, drawers beyond the ends
+    let core = bodySvg(st, m, k === 0) + knuckles(PC, -Y1, ZT + 1.5, 0) + knuckles({ ...PC, ey: neg(PC.ey), ez: neg(PC.ez) }, -Y1, -1.5, 0);
+    const btn = buttonsSvg(st);
+    core = vis(PC.ey) ? core + btn : btn + core;
+    for (const side of [-1, 1]){ const d = drawerOut(st, side, m, true), facing = vis(kScl(PC.ex, side));
+      const parts = vis(kScl(PC.ex, side)) ? d.tray + d.plate : d.plate + d.tray;
+      core = facing ? core + parts : parts + core; }
+    // the lids: lying shut on a face (above it), or standing open behind their hinge
+    const place = (svg, deg, outward, hingeSide) => {
+      if (deg < 80) return vis(outward) ? [core, svg] : [svg, core];
+      return vis(hingeSide) ? [core, svg] : [svg, core]; };
+    const fl = frontLidSvg(st, m) + knuckles(lidFront(st), 0, 0, 1), bl = backLidSvg(st, m) + knuckles(lidBack(st), 0, 0, 1);
+    let order = place(fl, st.la, lidFront(st).ez, neg(PC.ey)); core = order.join('');
+    order = place(bl, st.lb, lidBack(st).ez, PC.ey); core = order.join('');
+    if (k > 0){   // see-through: the shell as a ghost; a pale floor over the shadow, then the working parts and what lies inside
+      const zf = vis(PC.ez) ? ZB : ZT, floor = fill(pd(fRect(PC, -X1 + 2, -Y1 + 2, X1 - 2, Y1 - 2, zf)), mix(m.l, '#f2efe7', .55));
+      core = `<g opacity="${f(1 - .78*k)}">${core}</g><g opacity="${f(k)}">${floor + mechSvg(st, m) + insideAll(st)}</g>`; }
+    s += core;
+    s += labels(st, k);
+    return s;
+  }
+  // see-through: everything in both compartments, open or shut
+  function insideAll(st){
+    const floor = fMove(PC, 0, 0, ZF), a = rulerSvg(floor), b = traySvg(st), c = backContentsXr(st);
+    return [{ at: pcP(0, -29, ZF), svg: a }, { at: pcP(0, 8, ZF + 6), svg: b }, { at: pcP(0, 0, 8), svg: c }].sort((p, q) => depthOf(p.at) - depthOf(q.at)).map(x => x.svg).join('');
+  }
+  function backContentsXr(st){ const F = looseF(st); return vis(F.ez) ? backContents(st) : ''; }
+  function labels(st, k){
+    const pts = fBoxPts(PC, -X1, -Y1, 0, X1, Y1, ZTOP), B = [Math.min(...pts.map(p => p[0])), Math.max(...pts.map(p => p[0])), Math.min(...pts.map(p => p[1])), Math.max(...pts.map(p => p[1])), 0, 40];
+    const LF = lidFront(st), LB = lidBack(st), dl = drawerParts(st, -1), dr = drawerParts(st, 1);
+    if (k > .6) return zhCallouts([
+      { at: fP(LF, 0, 76, 1.2), text: '磁铁', on: st.snapT > 0 },
+      { at: pcP(5, 39.6, 32), text: '铁片', on: st.snapT > 0 },
+      { at: pcP(60, -Y1, ZT + 1.5), text: '合页轴', on: st.la > 1 && st.la < LID_OPEN - 1 },
+      { at: pcP(-94 - dl.p/2, 0, 17), text: '弹簧', on: st.popL > 0 && st.popL < 1 },
+      { at: pcP(BTN.R - 10, 32, 21), text: '卡扣', on: st.btn.R > 0 || st.btn.L > 0 },
+      { at: pcP(BTN.M, 36, 20.4), text: '按钮推杆', on: st.btn.M > 0 },
+      { at: pcP(60, -18, ZF + 3.4), text: '扭簧', on: st.tray > 0 && st.tray < TRAY_UP },
+      { at: fP(dr.F, 111, 0, 27.5), text: '削笔刀片', on: st.popR > .5 },
+      { at: fP(trayF(st), 20, 52, 1), text: '笔架', on: st.tray > 1 } ], B);
+    const items = [
+      { at: fP(dr.F, 119, 0, 28), text: '削笔器', on: st.popR > .5 },
+      { at: fP(dl.F, -119, 0, 28), text: '橡皮仓', on: st.popL > .5 } ];
+    // only name what is on show: the lid and buttons on the face toward the viewer
+    if (vis(PC.ez) || st.la > 60) items.push({ at: fP(LF, -40, 70, 1.5), text: '前盖', on: st.la > 1 });
+    if (vis(neg(PC.ez)) || st.lb > 60) items.push({ at: fP(LB, -40, 70, 1.5), text: '后盖', on: st.lb > 1 });
+    if (vis(PC.ey)) items.push({ at: pcP(BTN.L, Y1 + 2, 22), text: '侧边按钮', on: st.btn.L + st.btn.M + st.btn.R > 0 });
+    if (st.la > 60 && vis(PC.ez)) items.push({ at: fP(LF, 30, 40, -1.5), text: '课程表', on: false }, { at: fP(trayF(st), 50, 26, 2), text: '笔架', on: st.tray > 1 }, { at: pcP(-60, -29, ZF + 1.6), text: '尺子', on: false });
+    if (st.lb > 60 && vis(neg(PC.ez))) items.push({ at: fP(LB, 0, 50, -1.5), text: '小镜子', on: false }, { at: fP(looseF(st), -36, 2, .3), text: '小纸条', on: true });
+    return zhCallouts(items, B);
+  }
+
+  /* ---------- actions ---------- */
+  let ui = ctx.ui;
+  const BUSY = { lid: '盖子还在动', flip: '正在翻面', btn: '还在弹', all: '变形中……', clack: '啪啪啪还没完' };
+  const busy = () => { if (!kBusy()) return false; ui.flash(BUSY[kBusy()] || '等一下'); return true; };
+  const backOut = k => { const c1 = 1.7, c3 = c1 + 1; return 1 + c3*Math.pow(k - 1, 3) + c1*Math.pow(k - 1, 2); };
+  // the lid falling shut: speeding up as the magnet takes over, a little bounce, "pa"
+  const lidShut = (st, key, ms = 420) => ({ ms, start(){ this.a0 = st[key]; }, step(k){ const e = k < .85 ? Math.pow(k/.85, 2) : 1; st[key] = this.a0*(1 - e) + (k > .85 ? 2.5*Math.sin(Math.PI*(k - .85)/.15) : 0); },
+    end(){ st[key] = 0; st.snaps++; snapGlow(st); } });
+  // the "pa": the magnet's glow fades over half a second, then nothing more runs
+  function snapGlow(st){ const was = st.snapT > 0; st.snapT = 1; if (was) return;
+    ui.animate(dt => { st.snapT = Math.max(0, st.snapT - dt/.48); return st.snapT > 0; }); }
+  const lidOpen = (st, key, ms = 520) => ({ ms, start(){ this.a0 = st[key]; }, step(k){ st[key] = this.a0 + (LID_OPEN - this.a0)*ease(k); }, end(){ st[key] = LID_OPEN; } });
+  // a part popping out on its spring after the button lets its hook go
+  function popSegs(st, which){
+    const key = { L: 'popL', R: 'popR', M: 'tray' }[which], to = which === 'M' ? TRAY_UP : 1;
+    if (st[key] > 0) return [{ ms: 380, start(){ this.v = st[key]; }, step(k){ st[key] = this.v*(1 - ease(k)); }, end(){ st[key] = 0; } }];   // pushed back in until it clicks
+    return [{ ms: 90, step(k){ st.btn[which] = k; } },
+      { ms: 420, step(k){ st[key] = to*backOut(k); if (k > .3) st.btn[which] = Math.max(0, 1 - (k - .3)/.4); }, end(){ st[key] = to; st.btn[which] = 0; } }];
+  }
+  const unflipSegs = st => st.flip > .01 ? [st.lb > 0 ? lidShut(st, 'lb') : null, flipSeg(st, 0)] : [];
+  const flipSeg = (st, to) => ({ ms: 1100, start(){ this.f0 = st.flip; }, step(k){ st.flip = this.f0 + (to - this.f0)*ease(k); st.lift = 36*Math.sin(Math.PI*k); }, end(){ st.flip = to; st.lift = 0; } });
+  function lidToggle(st){ if (busy()) return;
+    if (st.flip > .01) return kPlay(ui, 'lid', [...unflipSegs(st), lidOpen(st, 'la')], () => ui.flash('先翻回正面，再开盖'));
+    if (st.la > 1){ const segs = st.tray > 0 ? popSegs(st, 'M') : []; kPlay(ui, 'lid', [...segs, lidShut(st, 'la')], () => ui.flash('啪——磁铁一吸就合上了')); }
+    else kPlay(ui, 'lid', [lidOpen(st, 'la')], () => ui.flash('磁铁松开，盖子里是课程表')); }
+  function flipOpen(st){ if (busy()) return;
+    if (st.flip > .01){ return kPlay(ui, 'flip', [st.lb > 0 ? lidShut(st, 'lb') : null, flipSeg(st, 0)], () => ui.flash('翻回正面')); }
+    const segs = [];
+    if (st.tray > 0) segs.push(...popSegs(st, 'M'));
+    if (st.la > 0) segs.push(lidShut(st, 'la'));
+    segs.push(flipSeg(st, Math.PI), lidOpen(st, 'lb'));
+    kPlay(ui, 'flip', segs, () => ui.flash('背面的秘密夹层：一张小纸条', 2400)); }
+  const POP_NOTE = { R: ['削笔器弹出来了：一抽屉的铅笔屑', '削笔器推回去，咔哒卡住'], L: ['橡皮仓弹出来了', '橡皮仓推回去，咔哒卡住'], M: ['笔架弹起来，笔都站起来了', '笔架按回去了'] };
+  function pressSide(st, which){ if (busy()) return;
+    const key = { L: 'popL', R: 'popR', M: 'tray' }[which], out = st[key] > 0, segs = [...unflipSegs(st)];
+    if (which === 'M' && st.la < 1) segs.push(lidOpen(st, 'la'));
+    segs.push(...popSegs(st, which));
+    kPlay(ui, 'btn', segs, () => ui.flash(POP_NOTE[which][out ? 1 : 0] + (which === 'M' && st.la > 1 && !out && segs.length > 2 ? '（先开了盖）' : ''))); }
+  function allOpen(st){ if (busy()) return;
+    const segs = [...unflipSegs(st)];
+    if (st.la < 1) segs.push(lidOpen(st, 'la', 420));
+    for (const w of ['R', 'M', 'L']){ const key = { L: 'popL', R: 'popR', M: 'tray' }[w]; if (st[key] <= 0) segs.push(...popSegs(st, w)); }
+    if (segs.length === 0) return ui.flash('已经全开了——变形完毕');
+    kPlay(ui, 'all', segs, () => ui.flash('全部按开：变形金刚，启动！', 2400)); }
+  function clack(st){ if (busy()) return;
+    const segs = [...unflipSegs(st)];
+    if (st.tray > 0) segs.push(...popSegs(st, 'M'));
+    for (let i = 0; i < 5; i++){ if (st.la < 1 || i) segs.push({ ms: 160, start(){ this.a0 = st.la; }, step(k){ st.la = this.a0 + (70 - this.a0)*ease(k); } }); segs.push(lidShut(st, 'la', 170)); }
+    kPlay(ui, 'clack', segs, () => ui.flash('啪！啪！啪！——老师：谁在玩文具盒？', 2600)); }
+
+  const __cfg = ({
+    fig:'11', turn:'full', title:'多功能文具盒', palette:'blush',
+    state:{ flip: 0, lift: 0, la: 0, lb: 0, tray: 0, popL: 0, popR: 0, btn: { L: 0, M: 0, R: 0 }, snaps: 0, snapT: 0 },
+    scene,
+    stats: st => [ { label:'啪', value: String(st.snaps) }, { label:'弹出', value: `${(st.popL > .5) + (st.popR > .5) + (st.tray > 1)}/3`, small: true } ],
+    buttons:[
+      { label:'开盖 / 合盖', onClick: lidToggle },
+      { label:'翻面开', onClick: flipOpen },
+      { label:'按侧边按钮', choices: st => [
+        { label: st.popR > 0 ? '削笔器（推回去）' : '削笔器', onClick: st => pressSide(st, 'R') },
+        { label: st.popL > 0 ? '橡皮仓（推回去）' : '橡皮仓', onClick: st => pressSide(st, 'L') },
+        { label: st.tray > 0 ? '笔架（按回去）' : '笔架', onClick: st => pressSide(st, 'M') } ] },
+      { label:'全部按开', onClick: allOpen },
+      { label:'啪啪开合', onClick: clack },
+    ],
+    acts:{ btn: (st, el) => pressSide(st, el.dataset.b) },
+    params:(st, q) => {
+      if (q.has('lid')) st.la = +q.get('lid');
+      if (q.has('back')) st.lb = +q.get('back');
+      if (q.get('flip') === '1') st.flip = Math.PI;
+      if (q.has('tray')) st.tray = +q.get('tray');
+      if (q.has('popl')) st.popL = +q.get('popl');
+      if (q.has('popr')) st.popR = +q.get('popr');
+      if (q.has('btn')) for (const b of q.get('btn').split('')) if (b in st.btn) st.btn[b] = 1;
+      if (q.get('all') === '1'){ st.la = LID_OPEN; st.tray = TRAY_UP; st.popL = st.popR = 1; }
+    },
+  });
+  return ctx.adapt(__cfg, { seeThrough: true });
+}

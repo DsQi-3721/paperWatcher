@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>订书机</title></head><body>
+<script src="core.js"></script>
+<script src="kit.js"></script>
+<script>
+/* Fig. 09 — Desk stapler (订书机, 12# / 24/6 staples), on a desk with a homework, a stack of test papers and a box
+   of staples. The desk is turned toward the viewer (kit deskSetup): u along its front edge, v toward the viewer.
+   The stapler has its own frame: x from its front (x = 0) back to the hinge, y across, z up; 1 unit = 1 mm.
+
+   How it really works (each button is one of these):
+   1. Load (装书钉): lift the top cover on its hinge pin; its link pulls the pusher back to the rear of the channel.
+      Drop a strip of staples from the box astride the rail in the channel; close the cover and the pusher's spring
+      shoves the strip forward until the front staple sits under the driver blade.
+   2. Staple (订): press the cover. First cover and magazine go down together (the leaf return spring under the
+      magazine gives) until the magazine's nose rests on the paper. Then the cover goes on alone (the cover spring
+      gives): the driver blade shears the front staple off the strip and drives it down through the paper; its legs hit
+      the two grooves in the anvil and curl inward under the paper. Let go: both springs lift everything, and the pusher
+      moves the strip on by one staple (0.62 mm).
+   3. With no paper the staple folds shut on the anvil itself and drops off (a wasted staple).
+   4. A stack thicker than the 6 mm legs can pierce stops them on top: the driver buckles the staple and it jams in
+      the nose; you have to open the cover and pick it out.
+   Student life: clicking it empty just to hear the 咔嚓, and trying to staple a whole stack of test papers at once.
+
+   Parts:
+   BASE      rubber foot . base plate . anvil with two clinch grooves . rear bracket (two cheeks) . hinge pin .
+             leaf return spring and its rivet
+   MAGAZINE  channel bottom . two side walls . nose plate . rail . staple strip . pusher (block, tab) . pusher spring .
+             rear post . spring seat . cover spring
+   COVER     shell (No.12 on the side) . two hinge flanges . driver blade
+   DESK      desk board . homework (two sheets, staples in it) . stack of test papers . box of staples (strips) .
+             wasted staples */
+
+/* ---------- desk ---------- */
+const DLU = 200, DLV = 120, BH = 4;
+const DESK = deskSetup(DLU, DLV, 78, 32);
+const BTOP = deskTop(DLU, DLV, BH, 6);
+
+/* ---------- stapler frame ---------- */
+const SU = -42, SV = -12, HX = 120, HZ = 19;                    // front of the base in desk terms; hinge pin (x, z)
+const spW = (x, y, z) => dk(SU + x, SV + y, z);                 // base frame -> world
+// a part turned about the hinge pin by a (rad, front up): its own point -> world, and its axes in world
+const spR = a => (x, y, z) => { const dx = x - HX, dz = z - HZ, c = Math.cos(a), s = Math.sin(a); return spW(HX + dx*c + dz*s, y, HZ - dx*s + dz*c); };
+const spAx = a => [kAdd(kScl(DU, Math.cos(a)), [0, 0, -Math.sin(a)]), DV, kAdd(kScl(DU, Math.sin(a)), [0, 0, Math.cos(a)])];
+const spZ = (a, x, z) => HZ - (x - HX)*Math.sin(a) + (z - HZ)*Math.cos(a);
+// the turn at which point (x, z) of a part comes down to height zt
+function spSolve(x, z, zt){ let lo = -.25, hi = 1; for (let i = 0; i < 44; i++){ const mid = (lo + hi)/2; if (spZ(mid, x, z) > zt) hi = mid; else lo = mid; } return (lo + hi)/2; }
+function spBox(a, x0, y0, z0, x1, y1, z1, M, shade = toneI, w = .8){ const [ax, ay, az] = spAx(a);
+  return obox(spR(a)((x0 + x1)/2, (y0 + y1)/2, (z0 + z1)/2), ax, ay, az, (x1 - x0)/2, (y1 - y0)/2, (z1 - z0)/2, M, shade, w); }
+function spBoxPts(a, x0, y0, z0, x1, y1, z1){ const [ax, ay, az] = spAx(a);
+  return oboxPts(spR(a)((x0 + x1)/2, (y0 + y1)/2, (z0 + z1)/2), ax, ay, az, (x1 - x0)/2, (y1 - y0)/2, (z1 - z0)/2); }
+
+const PITCH_S = .62, STRIP_N = 100, CAP_N = 180, X0 = 2.45;  // staple pitch, staples per strip, channel capacity, front staple
+const A_M0 = Math.asin(8/118);                                 // magazine at rest: nose 8 mm above the anvil
+const DLT0 = Math.asin(8.5/117.3);                             // cover above the magazine at rest (driver clear of the strip)
+const A_OPEN = 42*Math.PI/180;
+const ANVIL = 7.2, BLADE = [2.4, 3.0, 7.9];                    // anvil top; driver blade x0, x1, bottom (cover frame)
+const BASEM = matOf('#4a4642'), RECESS = '#2b2523', PUSHM = matOf('#3f4448'), BOXM = matOf('#f2c230');
+const HEAD_PROF = [[0, 21.5], [0, 29], [1.4, 33.6], [5.5, 37.4], [17, 40.6], [60, 43], [100, 42.6], [122, 39.6], [131, 34.5], [133, 27], [129, 21.5]];
+
+/* ---------- the papers ---------- */
+const HW_W = 52, HW_H = 64, HW_PINS = [-16, 0, 16];            // homework: across (x), along the edge (y); staple spots
+const STK = { w: 56, h: 34, t: 3, home: [-2, 41] };          // stack of test papers; resting place (desk u, v), in front of the stapler
+const BOX = [32, 32, 98, 50, 11];                               // box of staples: u0, v0, u1, v1, height
+const LOOSE_AT = [[-26, 12, .3], [-18, 17, 2.2], [-29, 19, 1.1], [-14, 10, 2.8], [-22, 21, .7], [-11, 18, 1.7]];
+
+/* ---------- drawing the stapler ---------- */
+// cover shell: the profile swept across y = -11..11; its open underside shows dark
+function coverShell(a, m){
+  const R = spR(a), [ax, ay, az] = spAx(a), A = HEAD_PROF.map(([x, z]) => R(x, -11, z)), B = HEAD_PROF.map(([x, z]) => R(x, 11, z));
+  let s = loft(A, B, n => dot(n, az) < -.9 ? RECESS : tone(n, m));
+  for (const [cap, n] of [[A, kScl(ay, -1)], [B, ay]]) if (vis(n)) s += fill(pd(cap), tone(n, m)) + ink(pd(cap), 1.2);
+  if (vis(ay)) s += txOn(R(70, 11.05, 28.6), ax, ay, 'No.12', 4.2, mix(m.m, '#000000', .5), 800);
+  return s + hullInk([...A, ...B], 2.3);
+}
+// a staple standing in the column under the driver: crown top at ct; legs straight down to the anvil, the rest curled in
+function stapleCol(ct, mode, surf){
+  const xc = 2.75, M = MAT.steel, p = [], cb = ct - .5, lb = cb - 6;
+  if (mode === 'jam' && lb < surf){   // legs stopped on the stack and buckled: zigzags squashed into the space left
+    const h = Math.max(.6, cb - surf), z = q => surf + h*q;
+    for (const sy of [-1, 1]){ const y = sy*6, pts = [[xc, y, cb], [xc + 1.3, y - sy*.4, z(.72)], [xc - 1.1, y - sy*.2, z(.42)], [xc + .9, y - sy*.7, z(.15)], [xc + .2, y - sy*1.6, surf + .1]].map(q => spW(...q));
+      p.push(pts.slice(1).map((q, i) => rod(pts[i], q, .28, M, toneI, .5, .28, 8)).join('')); }
+    const bow = [[xc, -6.25, cb + .25], [xc - .5, 0, cb + 1.4], [xc, 6.25, cb + .25]].map(q => spW(...q));
+    return p.join('') + rod(bow[0], bow[1], .3, M, toneI, .6, .3, 8) + rod(bow[1], bow[2], .3, M, toneI, .6, .3, 8);
+  }
+  const fold = Math.max(0, ANVIL - lb), lz0 = Math.max(lb, ANVIL);
+  const legs = [-1, 1].map(sy => obox(spW(xc, sy*6, (cb + lz0)/2), DU, DV, [0, 0, 1], .31, .25, Math.max(.01, (cb - lz0)/2), M, toneI, .5)
+    + (fold > .05 ? obox(spW(xc, sy*(6.25 - fold/2), ANVIL + .25), DU, DV, [0, 0, 1], .31, fold/2, .25, M, toneI, .5) : ''));
+  const order = vis(DV) ? legs : legs.slice().reverse();
+  return order.join('') + obox(spW(xc, 0, ct - .25), DU, DV, [0, 0, 1], .31, 6.25, .25, M, toneI, .6);
+}
+// what is inside the channel: rail, the strip astride it, pusher, its spring, rear post, the staple being driven, blade
+function channelInside(st, a, ah){
+  const R = spR(a), M = MAT.steel, parts = [];
+  const rail = spBox(a, 3.2, -5.2, 8.4, 116, 5.2, 13.9, matOf('#9aa3a7'), toneI, .6);   // under everything that rides on it
+  const n = st.count - (st.drive ? 1 : 0), x0 = X0 + (st.drive ? PITCH_S : 0) + st.slideIn, x1 = x0 + n*PITCH_S;
+  if (n > 0){ let lines = '';
+    const [ax, ay, az] = spAx(a);
+    if (vis(az)) for (let i = 1; i < Math.min(n, 140); i++){ const x = x0 + i*PITCH_S; lines += pd([R(x, -6.2, 14.92), R(x, 6.2, 14.92)], false); }
+    parts.push({ x: (x0 + x1)/2, svg: spBox(a, x0, 5.75, 8.4, x1, 6.25, 14.4, M, toneI, .5) + spBox(a, x0, -6.25, 8.4, x1, -5.75, 14.4, M, toneI, .5)
+      + spBox(a, x0, -6.25, 14.4, x1, 6.25, 14.9, M, toneI, .6) + (lines ? `<path d="${lines}" fill="none" stroke="${INK}" stroke-width=".25" opacity=".35"/>` : '') }); }
+  // pusher sits behind the strip (or pulled back while the cover is open)
+  const xp = x1 + (st.pullBack || 0)*(112 - x1 - 7);
+  parts.push({ x: xp + 3.5, svg: spBox(a, xp, -6.5, 14, xp + 7, 6.5, 17.6, PUSHM, toneI, .8) + spBox(a, xp + 2, -2, 17.6, xp + 5, 2, 19.6, PUSHM, toneI, .7)
+    + spBox(a, xp + .3, 5.6, 9, xp + 6.7, 6.5, 14, PUSHM, toneI, .6) + spBox(a, xp + .3, -6.5, 9, xp + 6.7, -5.6, 14, PUSHM, toneI, .6) });
+  const sp = coilParts(R(xp + 7, 0, 17.2), spAx(a)[0], 0, Math.max(1, 116 - xp - 7), 1.6, Math.max(3, (116 - xp - 7)/3.2), MAT.steel.l, .4);
+  parts.push({ x: (xp + 116)/2, svg: sp.far + sp.near });
+  parts.push({ x: 117.5, svg: spBox(a, 116, -3, 8.4, 119, 3, 19, M, toneI, .7) });                               // rear post
+  const tow = vis(spAx(a)[0]);
+  parts.sort((p, q) => tow ? p.x - q.x : q.x - p.x);
+  let s = rail + parts.map(p => p.svg).join('');
+  if (st.drive) s += stapleCol(st.drive.ct, st.drive.mode, st.drive.surf);
+  if (st.jam && !st.drive) s += jammedSvg(a);
+  // driver blade, hanging from the cover into the nose
+  s += spBox(ah, BLADE[0], -6.3, BLADE[2], BLADE[1], 6.3, 23, matOf('#b8bfc2'), toneI, .7);
+  return s;
+}
+const jammedSvg = a => { const R = spR(a), M = MAT.steel, pts = [[2.75, -6, 11.5], [3.6, -5, 9.5], [2.2, -4.2, 7.4], [3.4, -3.4, 6.2]].map(q => R(...q)), pts2 = [[2.75, 6, 11.5], [1.9, 5.2, 9.8], [3.5, 4.6, 7.8], [2.4, 3.7, 6.4]].map(q => R(...q));
+  return [pts, pts2].map(q => q.slice(1).map((p, i) => rod(q[i], p, .28, M, toneI, .5, .28, 8)).join('')).join('')
+    + rod(R(2.75, -6.25, 11.8), R(2.3, 0, 13), .3, M, toneI, .6, .3, 8) + rod(R(2.3, 0, 13), R(2.75, 6.25, 11.8), .3, M, toneI, .6, .3, 8); };
+// the leaf return spring between base and magazine
+function leafSpring(am){
+  const zMb = spZ(am, 40, 7.6) - .1, A = [96, 6.6], Bc = [62, 6.9], Cc = [40, zMb], pts = [];
+  for (let i = 0; i <= 10; i++){ const t = i/10, x = (1-t)*(1-t)*A[0] + 2*(1-t)*t*Bc[0] + t*t*Cc[0], z = (1-t)*(1-t)*A[1] + 2*(1-t)*t*Bc[1] + t*t*Cc[1]; pts.push([x, z]); }
+  let s = '';
+  for (let i = 0; i < 10; i++){ const [x0, z0] = pts[i], [x1, z1] = pts[i + 1], q = [spW(x0, -3.5, z0), spW(x1, -3.5, z1), spW(x1, 3.5, z1), spW(x0, 3.5, z0)];
+    let nr = norm(cross(sub(q[1], q[0]), sub(q[3], q[0]))); if (!vis(nr)) nr = kScl(nr, -1); s += face(pd(q), toneI(nr, MAT.steel)); }
+  s += ink(pd([...pts.map(([x, z]) => spW(x, -3.5, z)), ...pts.slice().reverse().map(([x, z]) => spW(x, 3.5, z))]), .8);
+  return s + obox(spW(96, 0, 6.75), DU, DV, [0, 0, 1], 1.4, 1.4, .25, MAT.steel, toneI, .5);
+}
+// the cover spring: a coil standing on its seat across the channel, up to the cover's underside
+function coverSpring(am, ah){ const R = spR(am), [, , az] = spAx(am), top = spZ(ah, 103, 21.5), base = R(103, 0, 21.6), len = Math.min(8, Math.max(1.5, top - base[2]));
+  const c = coilParts(base, az, 0, len, 2.2, 4, MAT.steel.l, .45);
+  return { far: c.far, near: c.near, seat: spBox(am, 100, -7.5, 21, 106, 7.5, 21.6, MAT.steel, toneI, .6) }; }
+// the anvil plate and its two clinch grooves
+function anvilSvg(){
+  let s = spBox(0, 3, -6.5, 6.5, 17, 6.5, ANVIL, MAT.steel, toneI, .8);
+  if (vis([0, 0, 1])) for (const sy of [-1, 1]) s += shape(rrUV(9.3, sy > 0 ? 1.2 : -6.7, 11.5, sy > 0 ? 6.7 : -1.2, .9).map(([x, y]) => spW(x, y, ANVIL + .01)), '#9aa3a7', .5);
+  return s;
+}
+function baseSvg(){
+  const A = rrUV(1.5, -15.5, 132.5, 15.5, 6).map(([x, y]) => spW(x, y, 0)), B = rrUV(1.5, -15.5, 132.5, 15.5, 6).map(([x, y]) => spW(x, y, 1.6));
+  const C = rrUV(0, -17, 134, 17, 7).map(([x, y]) => spW(x, y, 1.6)), D = rrUV(0, -17, 134, 17, 7).map(([x, y]) => spW(x, y, 6.5));
+  return loft(A, B, n => toneI(n, DARK)) + hullInk([...A, ...B], 1) + loft(C, D, n => tone(n, BASEM)) + fill(pd(D), BASEM.l) + ink(pd(D), 1) + hullInk([...C, ...D], 2);
+}
+const cheek = sy => spBox(0, 110, sy > 0 ? 12 : -14, 6.5, 132, sy > 0 ? 14 : -12, 26, BASEM, tone, 1);
+const pinEnd = sy => { const a = spW(HX, sy*14, HZ), b = spW(HX, sy*14.8, HZ); return rod(a, b, 1.5, MAT.steel, toneI, .8, 1.5, 14); };
+const flanges = (ah, sy) => spBox(ah, 112, sy > 0 ? 10.2 : -11, 15, 128, sy > 0 ? 11 : -10.2, 22, MAT.steel, toneI, .7);
+
+/* ---------- the papers ---------- */
+// the homework: two sheets lying flat, or with their edge pushed onto the base (up a ramp from the desk)
+function hwSurf(x, e){ const zf = BH + .2; if (e <= 0 || x <= -8) return zf; const zt = e < 2.5 ? 6.6 + .8*e/2.5 : 7.4; const xe = Math.min(e, 2.5);
+  return x >= xe ? zt : zf + (zt - zf)*(x + 8)/(xe + 8); }
+function homework(st){
+  const h = st.hw, e = h.edge, x0 = e - HW_W, y0 = h.yc - HW_H/2, y1 = h.yc + HW_H/2;
+  const xs = e > 0 ? [x0, -8, Math.min(e, 2.5), e].filter((v, i, a) => i === 0 || v > a[i - 1] + .01) : [x0, e];
+  const sheet = (dx, dy, col) => { let s = '';
+    for (let i = 0; i < xs.length - 1; i++){ const q = [[xs[i], y0], [xs[i + 1], y0], [xs[i + 1], y1], [xs[i], y1]].map(([x, y]) => spW(x + dx, y + dy, hwSurf(x, e) + (dx ? -.05 : 0)));
+      s += fill(pd(q), col); }
+    const out = [...xs.map(x => spW(x + dx, y0 + dy, hwSurf(x, e))), ...xs.slice().reverse().map(x => spW(x + dx, y1 + dy, hwSurf(x, e)))];
+    return s + ink(pd(out), .8); };
+  let s = sheet(-1.2, .9, '#f4efe2') + sheet(0, 0, MAT.paper.l);
+  const zf = BH + .22, xr = Math.min(e, -8) - 2;
+  let rl = ''; for (let y = y0 + 17; y < y1 - 4; y += 7) rl += pd([spW(x0 + 4, y, zf), spW(xr, y, zf)], false);
+  s += `<path d="${rl}" fill="none" stroke="#9fb6d6" stroke-width=".5"/>`;
+  s += txOn(spW(x0 + 5, y0 + 10, zf), DU, [0, 0, 1], '语文作业', 4.4, INK, 800, 'start') + txOn(spW(x0 + 30, y0 + 10, zf), DU, [0, 0, 1], '三(2)班', 3.2, '#5b564d', 700, 'start');
+  for (const yd of h.pins){ const x = e - 6.3 + .3, y = h.yc + yd, z = hwSurf(x, e) + .02;
+    s += obox(spW(x, y, z + .25), DU, DV, [0, 0, 1], .31, 6.25, .25, MAT.steel, toneI, .6); }
+  return s;
+}
+// the stack of test papers: a block of 30 sheets, resting behind the stapler or pushed in under its nose
+function stackPose(t){
+  const home = { c: dk(STK.home[0], STK.home[1], BH + STK.t/2), tilt: 0 };
+  const slope = Math.atan((7.3 - (BH + .2))/STK.w), xc = 9 - STK.w/2, c = spW(xc, 0, (BH + .2 + 7.3)/2 + STK.t/2*Math.cos(slope));
+  if (t <= 0) return home; if (t >= 1) return { c, tilt: slope };
+  const mid = dk(SU + xc, STK.home[1], 0);                       // over to the left behind the stapler, then forward under its nose
+  if (t < .5){ const k = ease(t/.5); return { c: kAdd(kLerp(home.c, [mid[0], mid[1], home.c[2]], k), [0, 0, 18*Math.sin(Math.PI*k)]), tilt: 0 }; }
+  const k = ease((t - .5)/.5), p = kLerp([mid[0], mid[1], home.c[2]], c, k); return { c: kAdd(p, [0, 0, 6*Math.sin(Math.PI*k)]), tilt: slope*k };
+}
+function stackAxes(tilt){ return [kAdd(kScl(DU, Math.cos(tilt)), [0, 0, Math.sin(tilt)]), DV, kAdd(kScl(DU, -Math.sin(tilt)), [0, 0, Math.cos(tilt)])]; }
+function stackSvg(st){
+  const p = stackPose(st.stk), [ax, ay, az] = stackAxes(p.tilt), hx = STK.w/2, hy = STK.h/2, hz = STK.t/2;
+  let s = obox(p.c, ax, ay, az, hx, hy, hz, MAT.paper, toneI, .9);
+  // the sheets' edges on the sides that show
+  let ln = '';
+  for (const [nn, hn, along, ha] of [[ax, hx, ay, hy], [kScl(ax, -1), hx, ay, hy], [ay, hy, ax, hx], [kScl(ay, -1), hy, ax, hx]]) if (vis(nn)){
+    const fc = kAt(p.c, nn, hn + .02);
+    for (let z = -hz + .45; z < hz - .1; z += .45){ const b = kAt(fc, az, z); ln += pd([kAt(b, along, -ha + .3), kAt(b, along, ha - .3)], false); } }
+  if (ln) s += `<path d="${ln}" fill="none" stroke="#b9b09b" stroke-width=".35"/>`;
+  if (vis(az)){ const top = kAt(p.c, az, hz + .02); s += txOn(kAdd(kAt(top, ax, -hx + 5), kScl(ay, -hy + 9)), ax, az, '期末复习卷', 4.2, INK, 800, 'start')
+    + txOn(kAdd(kAt(top, ax, -hx + 5), kScl(ay, -hy + 15)), ax, az, '共 30 张', 3, '#5b564d', 700, 'start'); }
+  return s;
+}
+const stackPts = st => { const p = stackPose(st.stk), [ax, ay, az] = stackAxes(p.tilt); return oboxPts(p.c, ax, ay, az, STK.w/2, STK.h/2, STK.t/2); };
+// box of staples: a strip of staples shows on top while there are any
+function boxSvg(st){
+  const [u0, v0, u1, v1, h] = BOX; let s = deskBox(u0, v0, BH, u1, v1, BH + h, BOXM, toneI, 1.1);
+  const z = BH + h + .02;
+  if (vis([0, 0, 1])){
+    s += shape(rectUV(u0 + 1.5, v0 + 1.5, u1 - 1.5, v1 - 1.5).map(([u, v]) => dk(u, v, z)), '#6b5a2a', .6);
+    for (let i = 0; i < Math.min(2, st.boxN); i++){ const vc = v0 + 5.2 + i*7.6;
+      s += shape(rectUV(u0 + 3, vc - 3.1, u0 + 3 + STRIP_N*PITCH_S, vc + 3.1).map(([u, v]) => dk(u, v, z + .03)), '#dfe3e4', .6);
+      let ln = ''; for (let k = 4; k < STRIP_N*PITCH_S; k += 4) ln += pd([dk(u0 + 3 + k, vc - 3, z + .05), dk(u0 + 3 + k, vc + 3, z + .05)], false);
+      s += `<path d="${ln}" fill="none" stroke="#8f989b" stroke-width=".3"/>`; } }
+  if (vis(DV)) s += txOn(dk(u0 + 6, v1 + .05, BH + 6.6), DU, DV, '12# 订书钉', 4.2, INK, 800, 'start') + txOn(dk(u1 - 5, v1 + .05, BH + 6.6), DU, DV, '1000枚', 3.4, INK, 800, 'end');
+  return s;
+}
+// a strip on its way from the box into the channel: lifted out, over the open cover, dropped in behind the others
+function flyingStrip(st){
+  const t = st.fresh; if (!(t > 0 && t < 1)) return '';
+  const [u0, v0] = BOX, from = dk(u0 + 3 + STRIP_N*PITCH_S/2, v0 + 5.2, BH + BOX[4] - 1);
+  const xs = X0 + st.count*PITCH_S, to = spR(st.am)(xs + STRIP_N*PITCH_S/2, 0, 11.65);
+  const k = ease(t), p = kAdd(kLerp(from, to, k), [0, 0, 40*Math.sin(Math.PI*Math.min(1, k*1.15))]);
+  const hl = STRIP_N*PITCH_S/2, M = MAT.steel;
+  return obox(kAdd(p, [0, 0, 3]), DU, DV, [0, 0, 1], hl, 6.25, .25, M, toneI, .7) + obox(kAdd(p, kScl(DV, 6)), DU, DV, [0, 0, 1], hl, .25, 3, M, toneI, .5)
+    + obox(kAdd(p, kScl(DV, -6)), DU, DV, [0, 0, 1], hl, .25, 3, M, toneI, .5);
+}
+const looseSvg = l => { const [u, v, a] = l, c = Math.cos(a), s2 = Math.sin(a), at = (x, y) => dk(u + x*c - y*s2, v + x*s2 + y*c, BH + .35);
+  const shp = l[3] === 'bent' ? [[-6, 1.2], [-6, 0], [-2, .6], [0, -.4], [3, .5], [6, 0], [6, 1.5]] : [[-.6, 1.2], [-6.2, 1.2], [-6.2, 0], [6.2, 0], [6.2, 1.2], [.6, 1.2]];
+  const d = pd(shp.map(([x, y]) => at(x, y)), false);
+  return `<path d="${d}" fill="none" stroke="${INK}" style="stroke-width:.95" stroke-linejoin="round" stroke-linecap="round"/><path d="${d}" fill="none" stroke="#dfe3e4" style="stroke-width:.45" stroke-linejoin="round" stroke-linecap="round"/>`; };
+
+/* ---------- the stapler, assembled for the view ---------- */
+function stapler(st, m, k){
+  const am = st.am, ah = st.ah, near = vis(DV) ? 1 : -1, front = vis(kScl(DU, -1));
+  const docs = (st.hw.edge > 0 ? homework(st) : '') + (st.stk >= .999 ? stackSvg(st) : '');
+  const cs = coverSpring(am, ah);
+  // magazine: far wall, inside, near wall; the nose plate with whichever side faces the viewer
+  const wall = sy => spBox(am, 1.5, sy > 0 ? 6.8 : -7.5, 7.6, 126, sy > 0 ? 7.5 : -6.8, 21, MAT.steel, toneI, .9);
+  const nose = spBox(am, 1.5, -7.5, 9.2, 2.3, 7.5, 21, MAT.steel, toneI, .9);
+  const bottom = spBox(am, 3.2, -7.5, 7.6, 126, 7.5, 8.4, MAT.steel, toneI, .9);
+  const inside = channelInside(st, am, ah) + cs.far + cs.seat + cs.near;
+  let mag = bottom + wall(-near) + (front ? '' : nose) + inside + wall(near) + (front ? nose : '');
+  const cover = coverShell(ah, m);
+  const under = baseSvg() + anvilSvg() + leafSpring(am) + docs;
+  const shell = cheek(-near) + pinEnd(-near) + flanges(ah, -near) + mag + flanges(ah, near) + act('cover', cover) + cheek(near) + pinEnd(near);
+  if (!(k > 0)) return under + shell;
+  // see-through: the base stays; the cheeks, channel and cover fade and the working parts are drawn again over them
+  const mech = channelInside(st, am, ah) + cs.far + cs.seat + cs.near + rod(spW(HX, -14, HZ), spW(HX, 14, HZ), 1.2, MAT.steel, toneI, .7, 1.2, 12);
+  return under + `<g opacity="${f(1 - .75*k)}">${shell}</g><g opacity="${f(k)}">${mech}</g>`;
+}
+const staplerPts = st => [...spBoxPts(0, 0, -17, 0, 134, 17, 6.5), ...spBoxPts(st.am, 1.5, -7.5, 7.6, 126, 7.5, 21), ...HEAD_PROF.flatMap(([x, z]) => [spR(st.ah)(x, -11, z), spR(st.ah)(x, 11, z)])];
+// sort the things on the desk by desk-square boxes (u, v, z): separated along an axis, the nearer one goes later
+function deskSort(items){
+  const ax = [vis(DU), vis(DV), vis([0, 0, 1])];
+  const sep = (p, q) => { for (let i = 0; i < 3; i++){ if (p.b[1][i] <= q.b[0][i] + 1e-6) return ax[i] ? -1 : 1; if (q.b[1][i] <= p.b[0][i] + 1e-6) return ax[i] ? 1 : -1; } return 0; };
+  const dep = p => depthOf(dk((p.b[0][0] + p.b[1][0])/2, (p.b[0][1] + p.b[1][1])/2, (p.b[0][2] + p.b[1][2])/2));
+  return items.filter(Boolean).sort((p, q) => sep(p, q) || dep(p) - dep(q)).map(p => p.svg).join('');
+}
+const dbox = pts => { const q = pts.map(undk); return [[0, 1, 2].map(i => Math.min(...q.map(p => p[i]))), [0, 1, 2].map(i => Math.max(...q.map(p => p[i])))]; };
+
+/* ---------- scene ---------- */
+function scene(st, m){
+  const k = ease(st.xr || 0);
+  let s = deskBoard(DLU, DLV, BH, 6, WOOD);
+  const [u0, v0, u1, v1, h] = BOX;
+  const bp = deskBoxPts(u0, v0, BH, u1, v1, BH + h);
+  s += castShadow(bp, BH, BTOP);
+  if (st.stk <= .001) s += castShadow(stackPts(st), BH, BTOP);
+  s += clipTo(BTOP, castShadow([...spBoxPts(0, 0, -17, 0, 134, 17, 6.5), ...spBoxPts(st.am, 1.5, -7.5, 7.6, 126, 7.5, 21), ...spBoxPts(0, 110, -14, 6.5, 132, 14, 26)], BH)
+    + castShadow(HEAD_PROF.flatMap(([x, z]) => [spR(st.ah)(x, -11, z), spR(st.ah)(x, 11, z)]), BH));
+  for (const l of st.loose) s += looseSvg(l);
+  const sp = staplerPts(st);
+  const items = [
+    { b: dbox(sp), svg: stapler(st, m, k) },
+    { b: dbox(bp), svg: boxSvg(st) },
+    st.hw.edge <= 0 ? { b: dbox(rectUV(st.hw.edge - HW_W, st.hw.yc - HW_H/2, st.hw.edge, st.hw.yc + HW_H/2).map(([x, y]) => spW(x, y, BH + .3))), svg: homework(st) } : null,
+    st.stk < .999 ? { b: dbox(stackPts(st)), svg: stackSvg(st) } : null ];
+  s += deskSort(items) + flyingStrip(st) + (st.flyOut ? st.flyOut() : '');
+  s += labels(st, k);
+  return s;
+}
+function labels(st, k){
+  const am = st.am, ah = st.ah, sp = staplerPts(st), near = vis(DV) ? 1 : -1;
+  const B = [Math.min(...sp.map(p => p[0])), Math.max(...sp.map(p => p[0])), Math.min(...sp.map(p => p[1])), Math.max(...sp.map(p => p[1])), 0, 30];
+  const pressing = st.act === 'staple' || st.act === 'empty' || st.act === 'jam';
+  if (k > .6){ const xp = X0 + st.count*PITCH_S;
+    return zhCallouts([
+      { at: spR(ah)(2.7, 0, 16), text: '打钉片', on: !!st.drive },
+      ...(st.count ? [{ at: spR(am)(X0 + Math.min(st.count, 60)*PITCH_S/2, near*6.25, 14.9), text: '书钉排', on: !!st.drive }] : []),
+      { at: spR(am)(xp + 3.5, 0, 17.6), text: '推钉器', on: st.pullBack > 0 },
+      { at: spR(am)((xp + 116)/2 + 4, 0, 18.8), text: '推钉弹簧', on: st.pullBack > 0 },
+      { at: spR(am)(100, near*5.2, 13.9), text: '导轨', on: false },
+      { at: spR(am)(103, 0, 25), text: '上盖弹簧', on: pressing },
+      { at: spW(70, 0, 7.6), text: '复位弹簧', on: pressing },
+      { at: spW(10, near*6.5, ANVIL), text: '钉砧', on: !!st.drive },
+      { at: spW(HX, near*14, HZ), text: '转轴', on: st.act === 'load' } ], B); }
+  return zhCallouts([
+    { at: spR(ah)(70, 0, 43), text: '上盖', on: pressing || st.act === 'load' },
+    { at: spR(am)(60, near*7.5, 12), text: '钉槽', on: st.act === 'load' },
+    { at: spW(60, near*17, 4), text: '底座', on: false },
+    { at: spW(10, 0, ANVIL), text: '钉砧', on: !!st.drive },
+    { at: spW(HX, near*14.8, HZ), text: '转轴', on: st.act === 'load' },
+    { at: dk(BOX[0] + 10, BOX[3], BH + BOX[4]), text: '订书钉盒', on: st.fresh > 0 } ], B);
+}
+
+/* ---------- actions ---------- */
+let ui;
+const BUSY = { load: '正在装钉', staple: '正在订', empty: '咔嚓还没按完', jam: '正在订那沓卷子', clear: '正在抠卡住的钉' };
+const busy = () => { if (!kBusy()) return false; ui.flash(BUSY[kBusy()] || '等一下'); return true; };
+const tween = (ms, fn, start) => ({ ms, start(){ this.v = start ? start() : null; }, step(k){ fn(ease(k), this.v); } });
+// press the cover with paper (or nothing) under the nose: surf = height of the paper's top over the anvil
+function pressSegs(st, mode, surf){
+  const aMag = Math.max(0, spSolve(2.3, 7.6, surf + .03));
+  const target = mode === 'jam' ? surf + 6.5 - 2.6 : mode === 'empty' ? ANVIL + 1 : surf + .5;
+  const aEnd = spSolve(BLADE[0] + .3, BLADE[2], target), natural = () => spZ(st.am, 2.75, 14.9);
+  return [
+    { ms: 230, start(){ this.a0 = st.am; this.h0 = st.ah; st.act = mode === 'paper' ? 'staple' : mode; },
+      step(k){ const e = ease(k); st.am = this.a0 + (aMag - this.a0)*e; st.ah = st.am + DLT0; } },
+    { ms: 260, start(){ this.h0 = st.ah; this.top = natural(); st.drive = st.count ? { ct: this.top, mode, surf } : null; },
+      step(k){ const e = k*k*(3 - 2*k); st.ah = this.h0 + (aEnd - this.h0)*e; const blade = spZ(st.ah, BLADE[0] + .3, BLADE[2]); if (st.drive) st.drive.ct = Math.min(this.top, blade); } },
+    { ms: 110, step(){} } ];
+}
+function releaseSegs(st, after){
+  return [
+    { ms: 220, start(){ this.h = st.ah; after(); }, step(k){ st.ah = this.h + (st.am + DLT0 - this.h)*ease(k); } },
+    { ms: 220, start(){ this.a = st.am; }, step(k){ st.am = this.a + (A_M0 - this.a)*ease(k); st.ah = st.am + DLT0; }, end(){ st.am = A_M0; st.ah = A_M0 + DLT0; st.act = null; } } ];
+}
+// out of staples, or a staple jammed in the nose: what a person does first
+function precheck(st){
+  if (st.jam) return clearSegs(st);
+  return null;
+}
+function clearSegs(st){
+  return [
+    { ms: 420, start(){ this.h = st.ah; st.act = 'clear'; }, step(k){ st.ah = this.h + (30*Math.PI/180 - this.h)*ease(k); } },
+    { ms: 520, start(){ st.jam = false; const p0 = spR(st.am)(2.75, 0, 9); st.flyOut = () => { const t = this.t || 0, p = kAdd(kLerp(p0, dk(-14, 14, BH + .4), t), [0, 0, 22*Math.sin(Math.PI*t)]);
+        return rod(kAdd(p, kScl(DV, -6)), kAdd(p, [0, 0, 1.5]), .3, MAT.steel, toneI, .6, .3, 8) + rod(kAdd(p, [0, 0, 1.5]), kAdd(p, kScl(DV, 6)), .3, MAT.steel, toneI, .6, .3, 8); }; },
+      step(k){ this.t = k; }, end(){ st.flyOut = null; st.loose.push([...LOOSE_AT[st.loose.length % LOOSE_AT.length].slice(0, 3), 'bent']); } },
+    { ms: 380, start(){ this.h = st.ah; }, step(k){ st.ah = this.h + (A_M0 + DLT0 - this.h)*ease(k); }, end(){ st.act = null; ui.flash('掀开上盖，用指甲把卡住的钉抠了出来', 2000); } } ];
+}
+function load(st){ if (busy()) return;
+  if (st.count + STRIP_N > CAP_N) return ui.flash('钉槽还满着，用掉一些再装');
+  if (st.boxN <= 0) return ui.flash('订书钉盒空了');
+  kPlay(ui, 'load', [...(precheck(st) || []),
+    { ms: 560, start(){ this.h = st.ah; st.act = 'load'; }, step(k){ const e = ease(k); st.ah = this.h + (A_OPEN - this.h)*e; st.pullBack = e; } },
+    { ms: 1100, start(){ st.fresh = .001; }, step(k){ st.fresh = Math.max(.001, Math.min(.999, k)); }, end(){ st.fresh = 0; st.count += STRIP_N; st.boxN--; st.slideIn = 0; } },
+    { ms: 520, start(){ this.h = st.ah; }, step(k){ const e = ease(k); st.ah = this.h + (A_M0 + DLT0 - this.h)*e; st.pullBack = 1 - e; }, end(){ st.pullBack = 0; st.act = null; } } ],
+    () => ui.flash(`装进一排 ${STRIP_N} 颗，推钉器把它们推到最前面`, 2000));
+}
+// staple the homework: slide it in under the nose at the next spot, press, let go, pull it back out
+function staple(st){ if (busy()) return;
+  if (!st.count && !st.jam) return ui.flash('没钉了：空按也订不上，先装书钉');
+  if (st.hw.pins.length >= HW_PINS.length){ st.hw.pins = []; ui.flash('订好了一份，换一份新作业'); }
+  const yd = HW_PINS[st.hw.pins.length];
+  const segs = [...(precheck(st) || [])];
+  segs.push(tween(420, (e, v) => { st.hw.edge = v.e + (9 - v.e)*e; st.hw.yc = v.y + (-yd - v.y)*e; }, () => ({ e: st.hw.edge, y: st.hw.yc })));
+  segs.push(...pressSegs(st, 'paper', 7.4));
+  segs.push(...releaseSegs(st, () => { if (st.drive){ st.hw.pins.push(yd); st.count--; st.drive = null; st.stapled++; } }));
+  segs.push(tween(380, (e, v) => { st.hw.edge = v + (-2 - v)*e; }, () => st.hw.edge));
+  kPlay(ui, 'staple', segs, () => ui.flash(st.hw.pins.length >= HW_PINS.length ? '咔嚓三下，左边三颗钉，作业订好了' : '咔嚓——钉脚穿过两张纸，在钉砧上弯进去', 1800));
+}
+// clicking it with nothing under: the staple folds shut on the anvil and drops off onto the desk
+function empty(st){ if (busy()) return;
+  if (!st.count && !st.jam) return ui.flash('连钉都没了，只剩空响');
+  const segs = [...(precheck(st) || [])];
+  if (st.hw.edge > -2) segs.push(tween(300, (e, v) => { st.hw.edge = v + (-2 - v)*e; }, () => st.hw.edge));
+  segs.push(...pressSegs(st, 'empty', ANVIL));
+  segs.push(...releaseSegs(st, () => { if (!st.drive) return; st.count--; st.drive = null; st.wasted++;
+    const p0 = spW(10, 0, ANVIL + .5), slot = LOOSE_AT[st.loose.length % LOOSE_AT.length], end = dk(slot[0], slot[1], BH + .4); let t = 0;
+    st.flyOut = () => { const p = kAdd(kLerp(p0, end, t), [0, 0, 16*Math.sin(Math.PI*t)]); return obox(p, DU, DV, [0, 0, 1], .6, 6.25, .5, MAT.steel, toneI, .6); };
+    ui.animate(dt => { t = Math.min(1, t + dt/.5); if (t >= 1){ st.flyOut = null; st.loose.push(slot.slice(0, 3)); if (st.loose.length > 12) st.loose.shift(); return false; } return true; }); }));
+  kPlay(ui, 'empty', segs, () => ui.flash(st.wasted > 2 ? `空按了 ${st.wasted} 下，桌上一堆折好的钉` : '咔嚓——空按一下，一颗钉白白折在钉砧上掉了', 2000));
+}
+// a whole stack of test papers under the nose: the legs can't get through 3 mm of paper, buckle, and jam in the nose
+function thick(st){ if (busy()) return;
+  if (!st.count && !st.jam) return ui.flash('没钉了：先装书钉');
+  const segs = [...(precheck(st) || [])];
+  if (st.hw.edge > -2) segs.push(tween(300, (e, v) => { st.hw.edge = v + (-2 - v)*e; }, () => st.hw.edge));
+  segs.push(tween(900, e => { st.stk = e; }));
+  const surf = 7.3 + STK.t;
+  segs.push(...pressSegs(st, 'jam', surf));
+  segs.push(...releaseSegs(st, () => { if (!st.drive) return; st.count--; st.drive = null; st.jam = true; st.wasted++; }));
+  segs.push(tween(800, e => { st.stk = 1 - e; }));
+  kPlay(ui, 'jam', segs, () => ui.flash('一沓 30 张太厚，钉脚扎不透就弯了——卡钉！', 2400));
+}
+
+ui = mountFigure({
+  fig:'09', turn:'full', title:'订书机', size: DESK.size, center: DESK.center, palette:'mint',
+  state:{ am: A_M0, ah: A_M0 + DLT0, count: 36, boxN: 8, wasted: 0, stapled: 0, pullBack: 0, slideIn: 0, fresh: 0, drive: null, jam: false,
+    hw: { edge: -2, yc: 0, pins: [] }, stk: 0, loose: [], act: null, flyOut: null },
+  scene,
+  stats: st => [ { label:'书钉', value: String(st.count) }, { label:'浪费', value: String(st.wasted), small: true } ],
+  buttons:[
+    { label:'装书钉', onClick: load },
+    { label:'订作业', onClick: staple },
+    { label:'空按咔嚓', onClick: empty },
+    { label:'订一沓卷子', onClick: thick },
+  ],
+  acts:{ cover: st => staple(st) },
+  params:(st, q) => {
+    if (q.has('count')) st.count = Math.max(0, Math.min(CAP_N, +q.get('count')));
+    if (q.has('open')){ st.ah = +q.get('open')*Math.PI/180; st.pullBack = 1; }
+    if (q.has('fresh')){ st.fresh = +q.get('fresh'); st.ah = A_OPEN; st.pullBack = 1; }
+    if (q.has('pins')) st.hw.pins = HW_PINS.slice(0, +q.get('pins'));
+    if (q.has('edge')) st.hw.edge = +q.get('edge');
+    if (q.has('stk')) st.stk = +q.get('stk');
+    if (q.get('jam') === '1') st.jam = true;
+    if (q.has('loose')) for (let i = 0; i < +q.get('loose'); i++) st.loose.push([...LOOSE_AT[i % LOOSE_AT.length].slice(0, 3), i % 3 === 2 ? 'bent' : 'shut']);
+    if (q.has('drive')){ const mode = q.get('mode') || 'paper', surf = mode === 'jam' ? 7.3 + STK.t : mode === 'empty' ? ANVIL : 7.4;
+      if (mode === 'paper'){ st.hw.edge = 9; } if (mode === 'jam') st.stk = 1;
+      st.am = Math.max(0, spSolve(2.3, 7.6, surf + .03)); st.ah = st.am + DLT0;
+      const ct = spZ(st.am, 2.75, 14.9) - +q.get('drive'); st.drive = { ct, mode, surf };
+      st.ah = spSolve(BLADE[0] + .3, BLADE[2], ct); }
+  },
+});
+xrMount(() => ui, () => '');
+</script></body></html>

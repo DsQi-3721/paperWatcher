@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>钢尺</title></head><body>
+<script src="core.js"></script>
+<script src="kit.js"></script>
+<script>
+/* Fig. 07 — Steel ruler: a 15 cm stainless steel ruler on a desk with a maths quiz and a pencil.
+   The desk is turned toward the viewer (kit deskSetup): u along its front edge, v toward the viewer; 1 unit = 1 mm.
+   The ruler is drawn in its own frame: X along it (0 = the zero mark), Y across (0 = the cm edge), Z through it.
+
+   How it really works (each button is one of these):
+   1. Measuring: lay the cm edge along the segment with its zero mark on A and read the mark under B. The marks are
+      etched into the steel, so they sit right on the edge (no parallax, unlike a thick plastic rule).
+   2. Drawing a line: hold the ruler down and run the pencil along its edge from 0 to the length wanted.
+   3. Desk-edge twang: hold the part on the desk down hard, push the free end down and let go. The overhang is a
+      cantilever: it rings in its first bending mode, f = 0.56/L^2 * sqrt(E t^2 / 12 rho) — about 0.65/L^2 Hz for 0.8 mm
+      steel with L in metres: 6 cm overhang 180 Hz, 9 cm 80 Hz, 12 cm 45 Hz. Pulling it back in while it rings
+      shortens L, so the note climbs: the classroom "doooOIING". The ringing dies away as the finger and air damp it.
+   4. Many school steel rulers have the multiplication rhymes (乘法口诀) printed on the back, which is why they get
+      collected before a maths exam.
+   Parts:
+   RULER   steel blade (top, back, edges, square zero end, rounded hang end) . hang hole . cm scale (mm ticks, half-cm
+           and cm ticks, numbers 0..15) . inch scale (1/16 in ticks, numbers 1..6) . satin shine . back print (乘法口诀)
+   DESK    desk board . quiz sheet (questions, segment AB, blank, drawn lines, the answer) . pencil (hex, sharpened)
+   HANDS   the holding finger (pad, nail) . the flicking finger */
+
+/* ---------- desk and sheet ---------- */
+const DLU = 190, DLV = 120, BH = 4, ZP = BH + .4;
+const DESK = deskSetup(DLU, DLV, 70, 36);            // tall enough a frame for the ruler sticking out over the front edge
+const BTOP = deskTop(DLU, DLV, BH, 6);
+const SHEET = [-90, -52, 18, 40];
+const AB = { a: -78, b: -5, v: -14 };                           // segment AB, 73 mm
+const LINES = [{ v: 8, L: 80 }, { v: 26, L: 50 }];               // "draw a 8 cm / 5 cm segment"
+const ANSWER = deskHand('7.3', -19, -26.2, ZP + .02, 4.6, 19);
+
+/* ---------- the ruler ---------- */
+const RT = .9, RW = 18, RX0 = -5, RX1 = 168, HOLE = [160.5, 9, 2.9];
+const STEEL = { l:'#eef1f2', m:'#c5ccd0', d:'#8d979c' };
+const rlY = X => { if (X <= 159) return [0, RW]; const d = Math.sqrt(Math.max(0, 81 - (X - 159)*(X - 159))); return [9 - d, 9 + d]; };
+// stations along the blade: coarse where it lies flat, fine where it bends, then round the hang end
+function rlStations(R){ const xs = []; for (let x = RX0; x < 159; x += x < R.Xe - 2 ? 8 : 3){ if (x < R.Xe && x + 8 > R.Xe && R.A) { xs.push(x); x = R.Xe - 8; continue; } xs.push(x); }
+  for (let i = 0; i <= 6; i++) xs.push(159 + 9*Math.sin(i/6*Math.PI/2)); return xs; }
+// a ruler pose: o = where X=0, Y=0 lies (unbent, unflipped), DX along it, DY across; flip turns it about its centre line;
+// bend: the part past Xe is a cantilever with tip deflection A (mm, + = up)
+function rlPose(o, DX, DY, flip = 0, lift = 0, Xe = 999, A = 0){
+  const DZ = cross(DX, DY), c = Math.cos(flip), s = Math.sin(flip);
+  return { o, DX, DY, DZ, DYf: kAdd(kScl(DY, c), kScl(DZ, s)), DZf: kAdd(kScl(DZ, c), kScl(DY, -s)), lift, Xe, A }; }
+const rlW = (R, X) => { if (X <= R.Xe) return 0; const L = RX1 - R.Xe, xi = (X - R.Xe)/L; return R.A*xi*xi*(3 - xi)/2; };
+const rlWp = (R, X) => { if (X <= R.Xe) return 0; const L = RX1 - R.Xe, xi = (X - R.Xe)/L; return R.A*(6*xi - 3*xi*xi)/2/L; };
+const rlP = (R, X, Y, Zl) => { const w = rlW(R, X), o = R.o;
+  return [0, 1, 2].map(i => o[i] + R.DX[i]*X + R.DY[i]*9 + R.DYf[i]*(Y - 9) + R.DZf[i]*(Zl + w) + (i === 2 ? R.lift : 0)); };
+const rlN = (R, X) => norm(kAdd(R.DZf, kScl(R.DX, -rlWp(R, X))));       // the top face's normal at X
+
+// 乘法口诀 for the back, 4 rows
+const CN = '一二三四五六七八九';
+const cnNum = n => n < 10 ? CN[n - 1] : n === 10 ? '一十' : n < 20 ? '十' + CN[n - 11] : n % 10 === 0 ? CN[n/10 - 1] + '十' : CN[Math.floor(n/10) - 1] + '十' + CN[n % 10 - 1];
+const KOUJUE = (() => { const e = []; for (let b = 1; b <= 9; b++) for (let a = 1; a <= b; a++) e.push(CN[a - 1] + CN[b - 1] + (a*b < 10 ? '得' : '') + cnNum(a*b));
+  return [e.slice(0, 12), e.slice(12, 24), e.slice(24, 35), e.slice(35)].map(r => r.join(' ')); })();
+
+function rulerSvg(R, opts = {}){
+  const top = RT/2, bot = -RT/2, P3 = (X, Y, Z) => rlP(R, X, Y, Z);
+  let strips = '', faces = '', ink1 = '';
+  const ST = rlStations(R);
+  const topVis = vis(rlN(R, 40)), useTop = topVis, zf = useTop ? top : bot;
+  // edges (near, far, round end) and the square zero end
+  for (let i = 0; i < ST.length - 1; i++){ const a = ST[i], b = ST[i + 1], [a0, a1] = rlY(a), [b0, b1] = rlY(b);
+    for (const [ya, yb, hint] of [[a1, b1, R.DYf], [a0, b0, kScl(R.DYf, -1)]]){
+      const q = [P3(a, ya, top), P3(b, yb, top), P3(b, yb, bot), P3(a, ya, bot)];
+      let n = norm(cross(sub(q[1], q[0]), sub(q[3], q[0]))); if (!isFinite(n[0])) continue;
+      const out = b > 159 ? kAdd(R.DX, kScl(hint, .3)) : hint; if (dot(n, out) < 0) n = kScl(n, -1);
+      if (vis(n)) strips += face(pd(q), toneI(n, STEEL)); } }
+  if (vis(kScl(R.DX, -1))) strips += shape([P3(RX0, 0, top), P3(RX0, RW, top), P3(RX0, RW, bot), P3(RX0, 0, bot)], toneI(kScl(R.DX, -1), STEEL), .6);
+  // the face toward the viewer, strip by strip so a bent blade shades along its curve
+  for (let i = 0; i < ST.length - 1; i++){ const a = ST[i], b = ST[i + 1], [a0, a1] = rlY(a), [b0, b1] = rlY(b), n = rlN(R, (a + b)/2);
+    faces += face(pd([P3(a, a0, zf), P3(b, b0, zf), P3(b, b1, zf), P3(a, a1, zf)]), tone(useTop ? n : kScl(n, -1), STEEL)); }
+  const outline = [...ST.map(x => P3(x, rlY(x)[0], zf)), ...ST.slice().reverse().map(x => P3(x, rlY(x)[1], zf))];
+  let print = '';
+  const zp = zf + (useTop ? .02 : -.02);
+  if (useTop){
+    // satin shine: two soft diagonal bands
+    for (const [x0, w] of [[24, 12], [46, 4]]) print += fill(pd([P3(x0, 0, zp), P3(x0 + w, 0, zp), P3(x0 + w - 8, RW, zp), P3(x0 - 8, RW, zp)]), '#ffffff', 'opacity=".38"');
+    let t = '';
+    for (let i = 0; i <= 150; i++){ const L = i % 10 === 0 ? 4.6 : i % 5 === 0 ? 3.4 : 2.1; t += pd([P3(i, 0, zp), P3(i, L, zp)], false); }
+    for (let j = 0; j <= 96; j++){ const X = j*25.4/16, L = j % 16 === 0 ? 4 : j % 8 === 0 ? 3 : j % 4 === 0 ? 2.2 : j % 2 === 0 ? 1.6 : 1.1; t += pd([P3(X, RW, zp), P3(X, RW - L, zp)], false); }
+    print += `<path d="${t}" fill="none" stroke="#2a2a2e" style="stroke-width:.26" stroke-linecap="butt"/>`;
+    for (let c = 0; c <= 15; c++){ const X = c*10; print += txOn(P3(X, 8.1, zp), R.DX, rlN(R, X), String(c), 2.8, '#2a2a2e', 700, 'middle'); }
+    for (let k = 1; k <= 6; k++){ const X = k*25.4; print += txOn(P3(X, 13.2, zp), R.DX, rlN(R, X), String(k), 2.2, '#2a2a2e', 700, 'middle'); }
+    print += txOn(P3(153.5, 8.1, zp), R.DX, rlN(R, 150), 'cm', 2.2, '#2a2a2e', 700, 'middle')
+      + txOn(P3(4.5, 13.2, zp), R.DX, rlN(R, 4), 'INCH', 1.7, '#2a2a2e', 700, 'middle')
+      + txOn(P3(82, 10.9, zp), R.DX, rlN(R, 80), 'STAINLESS STEEL  15 cm', 1.8, '#4a4c52', 700, 'middle');
+  } else {
+    // the back: 乘法口诀 rows, read with the ruler turned over
+    KOUJUE.forEach((row, k) => { print += txOn(P3(80, 15.2 - k*4.15, zp), R.DX, kScl(rlN(R, 80), -1), row, 2.25, '#2a2a2e', 700, 'middle'); });
+  }
+  // hang hole: what lies under it shows through (desk, page or the floor colour)
+  const hole = Array.from({length: 18}, (_, i) => { const t = i/18*2*Math.PI; return P3(HOLE[0] + HOLE[2]*Math.cos(t), HOLE[1] + HOLE[2]*Math.sin(t), zp); });
+  print += fill(pd(hole), opts.under || WOOD.l) + `<path d="${pd(hole)}" fill="none" stroke="${INK}" stroke-width=".7"/>`
+    + `<path d="${pd(hole.slice(2, 10), false)}" fill="none" stroke="${STEEL.d}" style="stroke-width:.7"/>`;
+  return strips + faces + print + `<path d="${pd(outline)}" fill="none" stroke="${INK}" stroke-width="1.25" stroke-linejoin="round"/>`;
+}
+const rulerPts = R => { const o = []; for (const X of [RX0, 40, 80, 120, RX1 - 1]) for (const Y of [0, RW]) o.push(rlP(R, X, Y, 0)); return o; };
+
+/* ---------- pencil (palette colour), drawn from its tip ---------- */
+const PEN_L = 86, PEN_REST = { o: dk(84, 30, BH + 3.3), d: norm(dkv(-.03, -1, 0)) };   // on the desk, right of the twang spot
+const PEN_D = norm(dkv(.62, .5, .6));                           // held by a right hand at the front
+function pencilSvg(p, m){
+  const o = p.o, d = p.d, W = matOf('#f0c890');
+  return coaxOrder(d, [
+    { name:'tip', s0: 0, s1: 2.6, svg: coaxSeg(o, d, { s0: 0, s1: 2.6, r0: .25, r1: .95, M: MAT.graphite, n: 12, w: .7, shade: toneI }) },
+    { name:'cone', s0: 2.6, s1: 13, svg: coaxSeg(o, d, { s0: 2.6, s1: 13, r0: .95, r1: 3.6, M: W, n: 18, w: .9 }) },
+    { name:'body', s0: 13, s1: PEN_L, svg: coaxSeg(o, d, { s0: 13, s1: PEN_L, r0: 3.8, M: m, n: 6, w: 1.3, edges: .5, capCol: '#f0c890', hole1: .95, bore: GRAPHITE }) } ]);
+}
+const pencilPts = p => [...axisRing(p.o, p.d, .4, 6), ...axisRing(kAt(p.o, p.d, PEN_L), p.d, 3.8, 6)];
+
+/* ---------- fingers (twang) ---------- */
+const SKIN = { l:'#f8dcc0', m:'#ecbd9a', d:'#c99474' };
+// a finger pressing down, three joints curling back up toward the hand (dir = from the tip toward the hand):
+// the pad on the ruler, the nail on the back of the end joint, a rounded knuckle where it leaves the picture
+function fingerJoints(tip, dir){
+  const d2 = norm(kAdd(dir, [0, 0, .45])), d3 = norm(kAdd(d2, [0, 0, .5]));
+  const j1 = kAt(tip, dir, 17), j2 = kAt(j1, d2, 21), j3 = kAt(j2, d3, 20);
+  return [tip, j1, j2, j3]; }
+function fingerParts(tip, dir, r = 7){ const J = fingerJoints(tip, dir), pts = [];
+  J.forEach((p, i) => pts.push(...axisRing(p, i ? norm(sub(p, J[i - 1])) : dir, r*(1 + .05*i), 8))); return { pts }; }
+// seen from any side a finger is a round-ended tube, so it is drawn as one: an ink capsule along its joints, the skin
+// inside it, a lit band, creases at the knuckles and the nail on the back of the end joint
+function fingerSvg(tip, dir, r = 7){
+  const J = fingerJoints(tip, dir), S2 = J.map(p => P(...p)), w = 2*r*CAM_K;
+  const path = 'M' + S2.map(q => f(q[0]) + ' ' + f(q[1])).join('L');
+  const cap = 'fill="none" stroke-linecap="round" stroke-linejoin="round"';
+  let s = `<path d="${path}" ${cap} stroke="${INK}" style="stroke-width:${f(w + 2.2*INK_K)}"/>`
+    + `<path d="${path}" ${cap} stroke="${SKIN.m}" style="stroke-width:${f(w)}"/>`;
+  // lit band: shifted toward the light (up and to the right on screen)
+  const hl = 'M' + S2.map(q => f(q[0] + .22*w) + ' ' + f(q[1] - .2*w)).join('L');
+  s += `<path d="${hl}" ${cap} stroke="${SKIN.l}" style="stroke-width:${f(w*.42)}" opacity=".9"/>`;
+  for (const i of [1, 2]){ const a = S2[i - 1], c = S2[i + 1], dx = c[0] - a[0], dy = c[1] - a[1], L = Math.hypot(dx, dy) || 1, nx = -dy/L, ny = dx/L, q = S2[i];
+    s += `<path d="M${f(q[0] - nx*w*.32)} ${f(q[1] - ny*w*.32)}Q${f(q[0] + dx/L*w*.12)} ${f(q[1] + dy/L*w*.12)} ${f(q[0] + nx*w*.32)} ${f(q[1] + ny*w*.32)}" fill="none" stroke="${SKIN.d}" style="stroke-width:${f(.5*INK_K)}"/>`; }
+  const vp = norm(sub(CAM_V, kScl(dir, dot(CAM_V, dir)))), up = norm(sub([0, 0, 1], kScl(dir, dir[2]))), back = norm(kAdd(vp, kScl(up, .9)));
+  const nc = kAdd(kAt(tip, dir, 6), kScl(back, r*.94)), side = norm(cross(dir, back));
+  const nail = Array.from({length: 16}, (_, i) => { const t = i/16*2*Math.PI; return kAdd(nc, kAdd(kScl(side, 3.9*Math.cos(t)), kScl(dir, 4.6*Math.sin(t)))); });
+  s += fill(pd(nail), '#fde9e1') + `<path d="${pd(nail)}" fill="none" stroke="${INK}" stroke-width=".7"/>`
+    + `<path d="${pd(nail.slice(11, 15), false)}" fill="none" stroke="#ffffff" style="stroke-width:.7" opacity=".9"/>`;
+  return s;
+}
+
+/* ---------- poses ---------- */
+const R_HOME = { u: -75, v: 41, dir: 0, z: BH };                 // dir: 0 = along u, 90 = along v (sticking out at the front)
+const twangHz = L => .65/((L/1000)*(L/1000));                    // first bending mode of 0.8 mm steel, L in mm
+const OVER = { short: { label:'短 6 cm', L: 60, A: 4.5, tau: .28 }, mid: { label:'中 9 cm', L: 90, A: 7, tau: .42 }, long: { label:'长 12 cm', L: 120, A: 9.5, tau: .6 } };
+function rulerPose(st){
+  const r = st.r, t = r.dir*Math.PI/180, DX = norm(dkv(Math.cos(t), Math.sin(t), 0)), DY = norm(dkv(-Math.sin(t), Math.cos(t), 0));
+  return rlPose(dk(r.u, r.v, r.z + RT/2), DX, DY, st.flip*Math.PI, r.lift || 0, st.tw ? st.tw.Xe : 999, st.tw ? st.tw.w : 0);
+}
+// the ruler pose with its zero on the desk point (u, v), cm edge on the line toward -v
+const rOn = (u, v, z = ZP) => ({ u, v: v + .3, dir: 0, z });
+// sticking out over the front edge (v = DLV/2) by L, at u = 64
+const rTwang = L => ({ u: 56, v: DLV/2 - (RX1 - L), dir: 90, z: BH });
+
+/* ---------- the sheet ---------- */
+function sheet(st){
+  const [u0, v0, u1, v1] = SHEET, z = ZP + .02;
+  let s = deskSheet(u0, v0, u1, v1, BH, .4, { grid: 0 });
+  s += deskText(-84, -42, z, '数学小测', 5.2, INK, 800);
+  s += deskText(-84, -26, z, '1. 量出线段 AB 的长度', 3.7, '#2c2a26', 700) + deskText(-38, -26, z, 'AB =', 3.7, '#2c2a26', 700) + deskText(2, -26, z, 'cm', 3.7, '#2c2a26', 700);
+  s += `<path d="${pd([dk(-22, -25.6, z), dk(0, -25.6, z)], false)}" fill="none" stroke="${INK}" stroke-width=".6"/>`;
+  // the printed segment AB with its end ticks and letters
+  s += `<path d="${pd([dk(AB.a, AB.v, z), dk(AB.b, AB.v, z)], false)}${pd([dk(AB.a, AB.v - 1.8, z), dk(AB.a, AB.v + 1.8, z)], false)}${pd([dk(AB.b, AB.v - 1.8, z), dk(AB.b, AB.v + 1.8, z)], false)}" fill="none" stroke="${INK}" style="stroke-width:.45"/>`;
+  s += deskText(AB.a - 1, AB.v - 3, z, 'A', 3.4, INK, 800, 'middle') + deskText(AB.b + 1, AB.v - 3, z, 'B', 3.4, INK, 800, 'middle');
+  s += deskText(-84, 2, z, '2. 画一条 8 cm 长的线段', 3.7, '#2c2a26', 700) + deskText(-84, 20, z, '3. 画一条 5 cm 长的线段', 3.7, '#2c2a26', 700);
+  // pencil work: the answer, finished lines, the line being drawn
+  const lines = [];
+  if (st.answer) lines.push(...(st.answer >= 1 ? ANSWER : traceStrokes(ANSWER, st.answerDist).done));
+  st.lines.forEach((ln, i) => { if (ln > 0) lines.push([dk(-78, LINES[i].v - .55, z), dk(-78 + ln, LINES[i].v - .55, z)]); });
+  s += graphite(lines, GRAPHITE, .55, .9);
+  return s;
+}
+
+/* ---------- scene ---------- */
+const boxOf = pts => [[0,1,2].map(i => Math.min(...pts.map(p => p[i]))), [0,1,2].map(i => Math.max(...pts.map(p => p[i])))];
+function scene(st, m){
+  let s = deskBoard(DLU, DLV, BH, 6, WOOD) + sheet(st);
+  const R = rulerPose(st), rp = rulerPts(R);
+  // what shows through the hang hole: the sheet, the desk, or nothing (the page) past the desk's edge
+  const hc = undk(rlP(R, HOLE[0], HOLE[1], 0)), onDesk = Math.abs(hc[0]) < DLU/2 && Math.abs(hc[1]) < DLV/2;
+  const under = !onDesk ? '#f2efe7' : hc[0] > SHEET[0] && hc[0] < SHEET[2] && hc[1] > SHEET[1] && hc[1] < SHEET[3] ? MAT.paper.l : WOOD.l;
+  s += castShadow(rp, BH, BTOP) + castShadow(pencilPts(st.pen), BH, BTOP);
+  const fingers = [];
+  if (st.hold > 0){ const tip = kAdd(rlP(R, R.Xe - 15, 9, RT/2), [0, 0, 7 + 14*(1 - st.hold)]); fingers.push({ tip, dir: norm(dkv(.85, .22, .48)) }); }
+  if (st.flickF > 0){ const X = RX1 - 7, tip = kAdd(rlP(R, X, 9, RT/2), [0, 0, 7 + 22*(1 - st.flickF)]); fingers.push({ tip, dir: norm(dkv(.72, .28, .62)) }); }
+  for (const g of fingers) s += castShadow(fingerParts(g.tip, g.dir).pts, BH, BTOP);
+  let ruler = act('ruler', rulerSvg(R, { under }));
+  // ringing: the overhang's swing either side, faint
+  if (st.tw && st.tw.env > .3){ let g = ''; for (const sg of [-1, 1]){ const G = rlPose(R.o, R.DX, R.DY, 0, R.lift, st.tw.Xe, sg*st.tw.env), xs = rlStations(G).filter(x => x >= st.tw.Xe);
+      const out = [...xs.map(x => rlP(G, x, rlY(x)[0], RT/2)), ...xs.slice().reverse().map(x => rlP(G, x, rlY(x)[1], RT/2))];
+      g += fill(pd(out), STEEL.l) + `<path d="${pd(out)}" fill="none" stroke="${INK}" stroke-width=".8"/>`; }
+    ruler = `<g opacity="${f(Math.min(.3, .045*st.tw.env))}">${g}</g>` + ruler; }
+  s += byDepth([
+    { box: boxOf(rp), svg: ruler },
+    { box: boxOf(pencilPts(st.pen)), svg: pencilSvg(st.pen, m) } ]);
+  for (const g of fingers) s += fingerSvg(g.tip, g.dir);
+  s += labels(st, R);
+  return s;
+}
+function labels(st, R){
+  const pts = [...rulerPts(R), ...pencilPts(st.pen)], B = [Math.min(...pts.map(p => p[0])), Math.max(...pts.map(p => p[0])), Math.min(...pts.map(p => p[1])), Math.max(...pts.map(p => p[1])), 0, 8];
+  const it = [], flipped = st.flip > .5, zt = flipped ? -RT/2 : RT/2;
+  if (!flipped){
+    it.push({ at: rlP(R, 50, 1.5, zt), text: '厘米刻度', on: kBusy() === 'measure' || kBusy() === 'draw' });
+    it.push({ at: rlP(R, 101.6, 16.5, zt), text: '英寸刻度', on: false });
+    it.push({ at: rlP(R, 0, 1, zt), text: '零刻度', on: kBusy() === 'measure' });
+  } else it.push({ at: rlP(R, 80, 9, zt), text: '乘法口诀', on: true });
+  it.push({ at: rlP(R, HOLE[0], HOLE[1] + HOLE[2], zt), text: '挂孔', on: false });
+  it.push({ at: kAt(st.pen.o, st.pen.d, 50), text: '铅笔', on: kBusy() === 'draw' || kBusy() === 'measure' });
+  if (st.r.dir === 90) it.push({ at: dk(st.r.u - 9, DLV/2, BH), text: '桌沿', on: !!st.tw });
+  it.push({ at: dk(AB.b, AB.v, ZP), text: '线段 AB', on: kBusy() === 'measure' });
+  return zhCallouts(it, B);
+}
+
+/* ---------- actions ---------- */
+let ui;
+const BUSY = { measure: '正在量', draw: '正在画线', twang: '尺子还在嗡嗡响', flip: '正在翻面', move: '尺子在挪' };
+const busy = () => { if (!kBusy()) return false; ui.flash(BUSY[kBusy()] || '等一下'); return true; };
+const lerpR = (a, b, k) => ({ u: a.u + (b.u - a.u)*k, v: a.v + (b.v - a.v)*k, dir: a.dir + (b.dir - a.dir)*k, z: a.z + (b.z - a.z)*k });
+const same = (a, b) => ['u', 'v', 'dir', 'z'].every(k => Math.abs(a[k] - b[k]) < .01);
+// move the ruler: lifted a little and set down at the target
+const moveR = (st, to, ms = 620) => ({ ms, start(){ this.from = { ...st.r }; }, step(k){ st.r = lerpR(this.from, to, ease(k)); st.r.lift = 8*Math.sin(Math.PI*k); }, end(){ st.r = { ...to }; } });
+const movePen = (st, to, ms = 420, h = 10) => ({ ms, start(){ this.from = st.pen; }, step(k){ const e = ease(k); st.pen = { o: kAdd(kLerp(this.from.o, to.o, e), [0, 0, h*Math.sin(Math.PI*k)]), d: norm(kLerp(this.from.d, to.d, e)) }; }, end(){ st.pen = to; } });
+const penTip = p => ({ o: p, d: PEN_D });
+// whatever the ruler is doing, the scale side up and off the desk edge first
+function ready(st){ const segs = [];
+  if (st.flip > .5) segs.push({ ms: 700, step(k){ st.flip = 1 - ease(k); st.r.lift = 12*Math.sin(Math.PI*k); }, end(){ st.flip = 0; st.r.lift = 0; } });
+  return segs; }
+function measure(st){ if (busy()) return;
+  const first = !st.answer;
+  kPlay(ui, 'measure', [...ready(st), moveR(st, rOn(AB.a, AB.v)),
+    { ms: 900, start(){ st.reading = 7.3; } },
+    moveR(st, R_HOME),
+    ...(first ? [movePen(st, penTip(ANSWER[0][0])), { ms: 900, step(k){ st.answer = .5; st.answerDist = k*strokesLength(ANSWER); st.pen = penTip(traceStrokes(ANSWER, st.answerDist).tip); }, end(){ st.answer = 1; } }, movePen(st, PEN_REST)] : []) ],
+    () => ui.flash(first ? 'A 对准 0，B 落在 7.3——AB = 7.3 cm' : '再量一遍还是 7.3 cm', 2200));
+}
+function drawLine(st){ if (busy()) return;
+  let i = st.lines.findIndex(l => l === 0);
+  if (i < 0){ st.lines = LINES.map(() => 0); i = 0; ui.flash('两条线都画好了——擦掉重画'); }
+  const ln = LINES[i], v = ln.v, start = dk(-78, v - .55, ZP + .02);
+  kPlay(ui, 'draw', [...ready(st), moveR(st, rOn(-78, v)), movePen(st, penTip(start)),
+    { ms: Math.max(600, ln.L/60*1000), step(k){ st.lines[i] = ln.L*k; st.pen = penTip(dk(-78 + ln.L*k, v - .55, ZP + .02)); st.reading = +(ln.L*k/10).toFixed(1); }, end(){ st.lines[i] = ln.L; } },
+    movePen(st, PEN_REST), moveR(st, R_HOME)],
+    () => ui.flash(`沿着尺边从 0 画到 ${ln.L/10}——${ln.L/10} cm 的线段画好了`, 2000));
+}
+// desk-edge twang: slide out over the front edge, hold down, press the tip down, let go, ring and die away
+function twang(st, key){ if (busy()) return;
+  const o = OVER[key], sweep = key === 'sweep', L0 = sweep ? 120 : o.L, A0 = sweep ? 9.5 : o.A, tau = sweep ? .9 : o.tau;
+  const Xe0 = RX1 - L0;
+  const segs = [...ready(st)];
+  if (st.flip > .5 || st.r.dir !== 90 || Math.abs((DLV/2 - st.r.v) - (RX1 - L0)) > .5) segs.push({ ms: 1, end(){ st.hold = 0; } }, moveR(st, rTwang(L0), 700));
+  segs.push({ ms: 260, start(){ st.tw = { Xe: Xe0, w: 0, env: 0, L: L0 }; }, step(k){ st.hold = ease(k); } });
+  segs.push({ ms: 380, step(k){ st.flickF = ease(Math.min(1, k*1.6)); st.tw.w = -A0*ease(Math.max(0, (k - .35)/.65)); } });
+  segs.push({ ms: sweep ? 1700 : 1000 + tau*1600, start(){ this.t = 0; this.last = performance.now(); },
+    step(k){ const n = performance.now(), dt = Math.min(.05, (n - this.last)/1000); this.last = n; this.t += dt;
+      st.flickF = Math.max(0, 1 - this.t*5);
+      let L = L0; if (sweep){ L = 120 - 62*Math.min(1, this.t/1.3); st.r = rTwang(L); }
+      const fHz = twangHz(L), env = A0*Math.exp(-this.t/tau);
+      st.tw = { Xe: RX1 - L, L, env, w: env*Math.cos(2*Math.PI*fHz*this.t), hz: fHz }; },
+    end(){ st.tw = null; st.flickF = 0; } });
+  segs.push({ ms: 260, step(k){ st.hold = 1 - ease(k); } });
+  st.twangs++;
+  kPlay(ui, 'twang', segs, () => {
+    if (st.twangs === 3) return ui.flash('老师：谁在弹尺子？', 2400);
+    ui.flash(sweep ? '边弹边往回收——伸出越短音越高：嘣～嗡～嘤！' : key === 'short' ? `伸出 6 cm：${Math.round(twangHz(60))} Hz，声音又尖又短` : key === 'mid' ? `伸出 9 cm：${Math.round(twangHz(90))} Hz，嗡——` : `伸出 12 cm：${Math.round(twangHz(120))} Hz，嘣——低沉又悠长`, 2400); });
+}
+function flip(st){ if (busy()) return;
+  const toBack = st.flip < .5, segs = [];
+  if (st.r.dir === 90) segs.push(moveR(st, R_HOME));
+  segs.push({ ms: 800, step(k){ st.flip = toBack ? ease(k) : 1 - ease(k); st.r.lift = 12*Math.sin(Math.PI*k); }, end(){ st.flip = toBack ? 1 : 0; st.r.lift = 0; } });
+  kPlay(ui, 'flip', segs, () => ui.flash(toBack ? '背面印着乘法口诀——考数学前老师要收走' : '翻回正面', 2400));
+}
+
+ui = mountFigure({
+  fig:'07', turn:'full', title:'钢尺', size: DESK.size, center: DESK.center, palette:'mint',
+  state:{ r: { ...R_HOME }, flip: 0, pen: PEN_REST, answer: 0, answerDist: 0, lines: LINES.map(() => 0), reading: null, tw: null, hold: 0, flickF: 0, twangs: 0 },
+  scene,
+  stats: st => st.tw && st.tw.hz ? [ { label:'频率', value: Math.round(st.tw.hz) + ' Hz' }, { label:'伸出', value: (st.tw.L/10).toFixed(1) + ' cm', small: true } ]
+    : st.r.dir === 90 ? (L => [ { label:'频率', value: Math.round(twangHz(L)) + ' Hz' }, { label:'伸出', value: (L/10).toFixed(1) + ' cm', small: true } ])(RX1 - (DLV/2 - st.r.v))
+    : [ { label:'读数', value: st.reading == null ? '— cm' : st.reading.toFixed(1) + ' cm' } ],
+  buttons:[
+    { label:'量一量', onClick: measure },
+    { label:'画直线', onClick: drawLine },
+    { label:'桌边弹尺子', choices: st => [
+        ...['short', 'mid', 'long'].map(k => ({ label: OVER[k].label, onClick: st => twang(st, k) })),
+        { label:'边弹边收', onClick: st => twang(st, 'sweep') } ] },
+    { label:'翻面', onClick: flip },
+  ],
+  acts:{ ruler: st => st.r.dir === 90 ? twang(st, 'long') : measure(st) },
+  params:(st, q) => {
+    if (q.get('flip') === '1') st.flip = 1;
+    if (q.has('answer')) st.answer = 1;
+    if (q.has('lines')) st.lines = LINES.map((l, i) => i < +q.get('lines') ? l.L : 0);
+    const pose = q.get('pose');
+    if (pose === 'measure'){ st.r = rOn(AB.a, AB.v); st.reading = 7.3; }
+    if (OVER[pose]){ const o = OVER[pose]; st.r = rTwang(o.L); st.hold = 1; st.tw = { Xe: RX1 - o.L, L: o.L, env: o.A*.6, w: o.A*.6*(q.has('w') ? +q.get('w') : 1), hz: twangHz(o.L) }; }
+    if (pose === 'draw'){ st.r = rOn(-78, LINES[0].v); st.lines[0] = 40; st.pen = penTip(dk(-38, LINES[0].v - .55, ZP + .02)); }
+  },
+});
+xrMount(() => ui, () => '', { labelsOnly: true });
+</script></body></html>

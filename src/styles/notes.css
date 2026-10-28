@@ -1,0 +1,283 @@
+/* ================= scratch sheets, handwriting, marks ================= */
+
+/* ---------- the sheet ---------- */
+.sheet { position: absolute; transform-origin: 50% 20%; z-index: 1; }
+.sheet.lifted { z-index: 3; }
+.sh-shadow { position: absolute; inset: 0; background: var(--shadow); transform: translate(7px, 9px); transition: transform .2s; }
+.sheet.lifted .sh-shadow { transform: translate(16px, 20px); }
+.sheet.lifted .sh-paper { transform: translate(-3px, -4px); }
+.sh-paper {
+  position: relative;
+  padding: 0 26px 16px 58px;
+  border: 1.6px solid var(--ink);
+  background-color: #fdfcf5;
+  transition: transform .2s;
+  user-select: none;
+}
+.paper-lined .sh-paper, .sh-paper.paper-lined {
+  background-image:
+    linear-gradient(90deg, transparent 45px, rgba(222, 106, 106, .6) 45px 46.5px, transparent 46.5px),
+    repeating-linear-gradient(180deg, transparent 0 25px, rgba(100, 140, 205, .42) 25px 26px);
+}
+.sh-paper.paper-grid {
+  background-color: #fcfcf8;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(110, 150, 210, .2) 0 1px, transparent 1px 13px),
+    repeating-linear-gradient(180deg, transparent 0 12px, rgba(110, 150, 210, .2) 12px 13px);
+}
+.sh-paper.paper-legal {
+  background-color: #fbf1b2;
+  background-image:
+    linear-gradient(90deg, transparent 41px, rgba(214, 90, 90, .55) 41px 42.5px, transparent 42.5px 45px, rgba(214, 90, 90, .55) 45px 46.5px, transparent 46.5px),
+    repeating-linear-gradient(180deg, transparent 0 25px, rgba(90, 120, 190, .38) 25px 26px);
+}
+.sh-paper.paper-dot {
+  background-color: #fdfcf7;
+  background-image: radial-gradient(circle at 6.5px 12.5px, rgba(80, 110, 170, .42) 0 1.1px, transparent 1.6px);
+  background-size: 13px 13px;
+}
+.sh-paper.paper-index {
+  background-color: #fffefa;
+  background-image: linear-gradient(180deg, transparent 51px, rgba(207, 80, 56, .6) 51px 52.5px, transparent 52.5px), repeating-linear-gradient(180deg, transparent 0 25px, rgba(110, 150, 210, .32) 25px 26px);
+}
+.sh-tape {
+  position: absolute; left: 50%; top: -15px; width: 132px; height: 30px; translate: -50% 0; rotate: -3deg;
+  background: rgba(130, 201, 164, .8);
+  background-image: repeating-linear-gradient(90deg, transparent 0 9px, rgba(255, 255, 255, .35) 9px 13px);
+  clip-path: polygon(0 10%, 4% 0, 9% 12%, 14% 2%, 20% 10%, 26% 0, 33% 11%, 40% 2%, 47% 9%, 54% 0, 61% 10%, 68% 1%, 75% 10%, 82% 0, 89% 11%, 95% 1%, 100% 8%, 100% 92%, 95% 100%, 89% 90%, 82% 99%, 75% 91%, 68% 100%, 61% 90%, 54% 99%, 47% 91%, 40% 100%, 33% 90%, 26% 99%, 20% 91%, 14% 100%, 9% 90%, 4% 99%, 0 93%);
+  cursor: grab;
+}
+.paper-legal .sh-tape, .sh-paper.paper-legal .sh-tape { background-color: rgba(244, 165, 186, .82); }
+.paper-grid .sh-tape, .sh-paper.paper-grid .sh-tape { background-color: rgba(112, 154, 224, .74); }
+.sh-head {
+  height: 52px; display: flex; align-items: flex-end; justify-content: space-between; gap: 10px;
+  padding-bottom: 6px; cursor: grab;
+}
+.sh-ref { font: 13px/1.2 var(--f-type); color: rgba(35, 30, 22, .62); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sh-tools { display: flex; gap: 2px; flex: none; opacity: .55; transition: opacity .2s; }
+.sheet:hover .sh-tools { opacity: 1; }
+.sh-btn { width: 26px; height: 26px; padding: 4px; border: 0; background: none; color: var(--ink); border-radius: 50%; cursor: pointer; }
+.sh-btn:hover { background: rgba(244, 184, 41, .55); }
+.sh-btn.close:hover { background: rgba(244, 165, 186, .7); }
+.sh-convo { position: relative; }
+.sh-msg { position: relative; margin-bottom: 26px; }
+.sh-who {
+  position: absolute; left: -54px; top: 0; width: 44px; height: 26px; line-height: 26px; text-align: center;
+  pointer-events: none;
+}
+.sh-who.user { font: 22px/26px var(--f-user); color: var(--user-ink); rotate: -6deg; }
+.sh-who.ai {
+  font: 700 13px/22px var(--f-ai); color: var(--ai-ink);
+  width: 30px; height: 22px; left: -48px; top: 2px; border: 1.4px solid var(--ai-ink); border-radius: 50%; rotate: 4deg;
+}
+.sh-arrow { position: absolute; left: -26px; top: -14px; width: 26px; height: 20px; color: rgba(56, 53, 47, .45); }
+.sh-arrow svg { width: 100%; height: 100%; display: block; }
+.sh-msg.user + .sh-msg.ai .sh-arrow { display: block; }
+.sh-msg.ai .sh-arrow { display: none; }
+.sh-compose { position: relative; margin-top: 4px; }
+.sh-compose .sh-who.user { opacity: .55; }
+.sh-status {
+  display: flex; align-items: center; gap: 8px; height: 26px; margin-top: 0;
+  font: 14px/26px var(--f-ai); color: rgba(56, 53, 47, .58);
+}
+.sh-status.writing { position: absolute; right: 0; bottom: -26px; font-size: 12px; }
+.sh-status.writing .dots { display: none; }
+.dots { display: inline-flex; gap: 4px; }
+.dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: dot-hop 1.1s ease-in-out infinite; }
+.dots i:nth-child(2) { animation-delay: .15s; }
+.dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes dot-hop { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
+.sh-cancel { margin-left: auto; padding: 0 8px; height: 20px; border: 1.2px solid currentColor; border-radius: 999px; background: none; font: 12px/18px var(--f-ui); color: inherit; cursor: pointer; }
+.sh-cancel:hover { background: rgba(244, 165, 186, .5); color: var(--ink); }
+.sh-error { display: flex; align-items: center; gap: 10px; font: 14px/1.4 var(--f-ai); color: var(--accent); padding: 4px 0; }
+.sh-retry { padding: 1px 10px; border: 1.5px solid var(--accent); border-radius: 999px; background: none; color: var(--accent); font: 13px var(--f-ui); cursor: pointer; }
+.sh-retry:hover { background: rgba(234, 99, 66, .12); }
+
+/* pens that write on the sheet */
+.sh-pen, .cmp-pen {
+  position: absolute; left: 0; top: 0; width: 46px; height: 46px; margin-top: -46px;
+  pointer-events: none; opacity: 0; transition: opacity .25s;
+  z-index: 2;
+}
+.sh-pen.on, .composer.focused .cmp-pen { opacity: 1; }
+.cmp-pen { width: 38px; height: 38px; margin-top: -38px; transition: opacity .25s, transform .07s linear; }
+
+.sh-pen.thinking .ico { animation: pen-think 1.6s ease-in-out infinite; transform-origin: 0 100%; }
+@keyframes pen-think { 0%, 100% { transform: translate(0, -2px) rotate(0); } 25% { transform: translate(5px, -7px) rotate(6deg); } 50% { transform: translate(10px, -2px) rotate(-2deg); } 75% { transform: translate(4px, 1px) rotate(3deg); } }
+.composer.busy { opacity: .4; pointer-events: none; }
+.composer.busy .cmp-pen { opacity: 0; }
+
+/* ---------- handwriting ---------- */
+.hw-msg { position: relative; }
+.hw-body { position: relative; user-select: text; -webkit-user-select: text; cursor: text; }
+.hw-block { position: absolute; left: 0; right: 0; }
+.hw-line { position: absolute; white-space: pre; transform-origin: 0 60%; }
+.hw-line.hw-hidden { visibility: hidden; }
+.hw-line.hw-writing {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(var(--p) + var(--pad, 0px) - 9px), rgba(0, 0, 0, .35) calc(var(--p) + var(--pad, 0px) - 2px), transparent calc(var(--p) + var(--pad, 0px) + 1px));
+  mask-image: linear-gradient(90deg, #000 calc(var(--p) + var(--pad, 0px) - 9px), rgba(0, 0, 0, .35) calc(var(--p) + var(--pad, 0px) - 2px), transparent calc(var(--p) + var(--pad, 0px) + 1px));
+}
+.hw-f, .hw-reftag, .hw-mathbox { display: inline-block; vertical-align: baseline; }
+.hw-b {
+  background: linear-gradient(176deg, transparent 52%, rgba(244, 184, 41, .5) 53%, rgba(244, 184, 41, .5) 88%, transparent 89%);
+  padding: 0 1px; margin: 0 -1px;
+}
+.hand-user .hw-b { background: linear-gradient(176deg, transparent 55%, rgba(118, 160, 226, .35) 56%, rgba(118, 160, 226, .35) 88%, transparent 89%); }
+.hw-i { color: color-mix(in srgb, currentColor 75%, var(--cobalt-d)); }
+.hw-mt { color: color-mix(in srgb, currentColor 82%, #1c2948); }
+.hw-ref {
+  color: var(--accent);
+  text-decoration: underline; text-decoration-style: wavy; text-decoration-thickness: 1px; text-underline-offset: 3px;
+  cursor: pointer;
+}
+.hw-reftag {
+  margin-left: 3px; padding: 0 3px; vertical-align: 3px; line-height: 1.25;
+  color: var(--accent); border: 1px solid currentColor; border-radius: 3px; cursor: pointer;
+}
+.hw-reftag:hover, .hw-ref:hover { background: rgba(234, 99, 66, .12); }
+.hw-code-inline { background: rgba(35, 30, 22, .07); border-radius: 3px; padding: 0 3px; }
+.hw-mathbox { vertical-align: middle; line-height: 1; color: inherit; }
+.hw-mathbox .katex, .hw-mathblock .katex { font-size: 1em; color: inherit; }
+.hw-mathblock { position: absolute; line-height: 1; }
+.hw-mathblock .katex-display { margin: 0; }
+.hw-codebox { position: absolute; left: 0; right: 0; top: 0; background: rgba(35, 30, 22, .045); border-left: 2px solid rgba(35, 30, 22, .3); }
+.hw-code { color: color-mix(in srgb, currentColor 85%, #1c2948); }
+.hw-bullet.dot { position: absolute; width: 5px; height: 5px; margin-top: -2px; border-radius: 45% 55% 50% 40%; background: currentColor; }
+.hw-bullet.num { position: absolute; top: 0; }
+.hw-head-ul { position: absolute; color: inherit; opacity: .8; }
+.hw-head-ul svg, .hw-hr { overflow: visible; display: block; }
+.hw-quote-bar { position: absolute; left: 4px; top: 4px; width: 0; border-left: 2px solid currentColor; opacity: .35; }
+.quick-in .hw-line { animation: quick-write .5s ease-out both; }
+.quick-in .hw-block:nth-child(2) .hw-line { animation-delay: .06s; }
+.quick-in .hw-block:nth-child(n+3) .hw-line { animation-delay: .12s; }
+@keyframes quick-write { from { clip-path: inset(-20% 100% -30% -2%); } to { clip-path: inset(-20% -2% -30% -2%); } }
+
+/* ---------- composer ---------- */
+.composer { position: relative; min-height: 26px; padding-right: 30px; }
+.cmp-ta, .cmp-mirror {
+  display: block; width: 100%; margin: 0; padding: 0; border: 0;
+  white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; letter-spacing: 0;
+}
+.cmp-ta {
+  position: absolute; left: 0; top: 0; height: 26px;
+  background: transparent; color: transparent; caret-color: var(--user-ink);
+  resize: none; outline: none; overflow: hidden;
+  user-select: text; -webkit-user-select: text;
+}
+.cmp-ta::selection { background: rgba(118, 160, 226, .3); color: transparent; }
+.cmp-mirror { position: relative; pointer-events: none; min-height: 26px; }
+.composer.empty .cmp-mirror::before {
+  content: attr(data-ph); position: absolute; left: 0; top: 0;
+  font: 400 15px/26px var(--f-ai); color: rgba(56, 53, 47, .38);
+}
+.cmp-caret { display: inline; }
+.ink-new { animation: ink-new .42s ease-out both; }
+@keyframes ink-new {
+  0% { opacity: 0; text-shadow: 0 0 5px currentColor; }
+  35% { opacity: .9; text-shadow: 0 0 2px currentColor; }
+  100% { opacity: 1; text-shadow: 0 0 0 transparent; }
+}
+.cmp-composing { color: rgba(42, 74, 158, .45); text-decoration: underline dotted rgba(42, 74, 158, .6); text-underline-offset: 4px; }
+.cmp-send {
+  position: absolute; right: -10px; bottom: -4px;
+  display: flex; align-items: center; gap: 2px; padding: 3px 8px 3px 10px;
+  border: 2.5px double var(--user-ink); border-radius: 40% 45% 42% 48%; background: rgba(118, 160, 226, .1);
+  color: var(--user-ink); font: 18px/1 var(--f-user); rotate: -6deg;
+  opacity: 0; transform: scale(.8); transition: opacity .2s, transform .2s cubic-bezier(.3,1.6,.5,1);
+  cursor: pointer;
+}
+.cmp-send svg { width: 16px; height: 16px; }
+.composer:not(.empty) .cmp-send { opacity: 1; transform: none; }
+.cmp-send:hover { background: rgba(118, 160, 226, .25); transform: scale(1.06) rotate(3deg); }
+
+/* ---------- marks on the page ---------- */
+.g-marks, .pg-notes, .g-hl { transition: opacity .3s; }
+.hide-ink .g-marks, .hide-ink .pg-notes { opacity: 0; pointer-events: none; }
+.mark .ink { transition: stroke-width .2s, opacity .2s; }
+.mark.hover .ink, .mark.active .ink { stroke-width: 2px; }
+.mark.has-thread .ink { stroke-opacity: .92; }
+.mark.pending .ink { animation: mark-pulse 1.3s ease-in-out infinite; }
+@keyframes mark-pulse { 50% { stroke-opacity: .35; } }
+.mark .band { mix-blend-mode: multiply; transform-box: fill-box; transform-origin: 0 50%; transition: opacity .2s; }
+.mark.hover .band { opacity: .75; }
+.mark.erasing, .mn-leader.erasing { animation: rub-out .42s ease-in forwards; }
+@keyframes rub-out { 30% { opacity: .6; transform: translate(2px, -1px); } 60% { opacity: .3; transform: translate(-2px, 1px); } to { opacity: 0; transform: translate(1px, 0); } }
+.mark-label { font: 8.5px var(--f-type); fill: var(--user-ink); fill-opacity: .8; }
+.mn-leader { fill: none; stroke: var(--ai-ink); stroke-width: .75; stroke-opacity: .55; stroke-linecap: round; }
+
+.mnote { position: absolute; color: var(--ai-ink); pointer-events: none; transform-origin: 0 0; transition: color .2s; }
+.mnote.stuck { background: #fff3a6; border: .8px solid rgba(35, 30, 22, .65); box-shadow: 2.5px 3px 0 var(--shadow); padding: 4px 5px; }
+.mnote.left.stuck { padding-right: 6px; }
+.mnote.hover, .mnote.active { color: #000; }
+.mnote.erasing { animation: rub-out .42s ease-in forwards; }
+.mn-line { white-space: nowrap; }
+.mn-line.write-in { animation: note-write .55s ease-out both; }
+@keyframes note-write { from { clip-path: inset(-30% 100% -40% -4%); } to { clip-path: inset(-30% -4% -40% -4%); } }
+.mn-scribble { display: inline-flex; gap: 2.5px; padding: 3px 0; }
+.mn-scribble i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; animation: dot-hop 1.1s ease-in-out infinite; }
+.mn-scribble i:nth-child(2) { animation-delay: .15s; }
+.mn-scribble i:nth-child(3) { animation-delay: .3s; }
+
+.paper-flag {
+  position: absolute; pointer-events: none;
+  display: grid; place-items: center;
+  font: 11.5px/1 var(--f-ui); color: #fff6ee;
+  background: var(--tomato); border: 1.2px solid var(--ink);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
+  transform-origin: 50% 100%;
+  transition: transform .2s;
+}
+.paper-flag.hover { transform: translateY(-3px); }
+.paper-flag.pop { animation: flag-pop .45s cubic-bezier(.3,1.6,.5,1) both; }
+.paper-flag.erasing { animation: rub-out .42s ease-in forwards; }
+@keyframes flag-pop { from { transform: translateY(18px) scaleY(.4); opacity: 0; } }
+
+/* ---------- arrows ---------- */
+.arrows .arrow-dot { opacity: .8; }
+.arrows .ref-arrow { opacity: .85; }
+.arrows .ref-arrow.hover { opacity: 1; }
+.ref-flash { fill: rgba(234, 99, 66, .28); animation: ref-flash 2.4s ease-out forwards; }
+@keyframes ref-flash { 0%, 30% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ---------- hover preview: a slip of tracing paper beside the note ---------- */
+/* Placed once where it appears (left/top set in JS) and never moved after; only its card fades. */
+.preview { position: absolute; left: 0; top: 0; width: 320px; z-index: 5; pointer-events: none; }
+.preview.on { pointer-events: auto; cursor: pointer; }
+.pv-card {
+  position: relative; max-height: 340px; overflow: hidden;
+  padding: 14px 12px 26px 12px;
+  background-color: rgba(253, 252, 246, .95);
+  background-image: repeating-linear-gradient(180deg, transparent 0 25px, rgba(100, 140, 205, .22) 25px 26px);
+  background-position: 0 14px;
+  border: 1.6px solid var(--ink);
+  box-shadow: 7px 9px 0 rgba(65, 83, 143, .55);
+  opacity: 0;
+  transform: translateY(4px) rotate(-.4deg);
+  transition: opacity .2s ease-out, transform .26s cubic-bezier(.2, .7, .3, 1);
+}
+.preview.on .pv-card { opacity: 1; transform: rotate(-.4deg); }
+.preview.on:hover .pv-card { box-shadow: 9px 11px 0 rgba(65, 83, 143, .6); }
+.pv-inner { max-height: 290px; overflow: hidden; padding-left: 38px; -webkit-mask-image: linear-gradient(180deg, #000 80%, transparent 100%); mask-image: linear-gradient(180deg, #000 80%, transparent 100%); }
+.pv-msg { position: relative; margin-bottom: 8px; }
+.pv-who { position: absolute; left: -38px; top: 0; font: 12px/26px var(--f-type); letter-spacing: .04em; color: var(--muted); }
+.pv-msg.user .pv-who { color: var(--user-ink); font: 19px/26px var(--f-user); letter-spacing: 0; }
+.pv-more { font: 11.5px var(--f-type); letter-spacing: .03em; color: var(--muted); margin: -4px 0 6px; }
+.pv-hint { position: absolute; right: 12px; bottom: 6px; font: 12px var(--f-ui); color: var(--muted); }
+.preview .hw-body { cursor: pointer; user-select: none; -webkit-user-select: none; }
+
+/* ---------- the paper stack ---------- */
+.stack { position: absolute; transform-origin: 50% 55%; }
+.stack-shadow { position: absolute; inset: 0; background: var(--shadow); }
+.stack-sheet {
+  position: absolute; inset: 0;
+  background: var(--page);
+  border: 1.3px solid rgba(35, 30, 22, .78);
+  background-image: linear-gradient(180deg, rgba(35, 30, 22, .03), transparent 30%);
+}
+.stack-sheet.tint { background-color: #efebdf; }
+.puff path { transform-box: fill-box; transform-origin: center; }
+.stack .page { left: 0; top: 0; }
+.stack-clip { position: absolute; z-index: 6; pointer-events: none; }
+.stack-clip svg { overflow: visible; display: block; width: 100%; height: 100%; }
+.puff { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+

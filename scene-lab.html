@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Desk scene lab</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #f2efe7; overflow: hidden; font: 12px ui-monospace, Menlo, monospace; }
+      #host { position: fixed; inset: 0; }
+      .scene, .scene-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      #hud { position: fixed; left: 8px; bottom: 8px; background: #fff8; padding: 4px 8px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <div id="hud"></div>
+    <script type="module" src="/src/scene/lab.ts"></script>
+  </body>
+</html>

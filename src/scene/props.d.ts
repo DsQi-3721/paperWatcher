@@ -1,0 +1,13 @@
+import type { Box3, V3 } from './types';
+import type { PaperDef } from './layout';
+export declare const DESK: { L: number; D: number; T: number; R: number };
+export declare const FLOOR_Z: number;
+export declare const JACKET: { u0: number; u1: number; v: number; face: number; z0: number; z1: number };
+export declare function deskTopPts(): V3[];
+export declare function deskBox(): Box3;
+export declare function desk(): string;
+export declare function chalkLine(): string;
+export declare function paperFrame(def: PaperDef): any;
+export declare function paper(def: PaperDef): string;
+export declare const WOODS: Record<string, { name: string; top: { l: string; m: string; d: string }; edge: { l: string; m: string; d: string } }>;
+export declare function setWood(name: string): void;

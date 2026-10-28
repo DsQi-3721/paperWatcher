@@ -1,0 +1,23 @@
+# dependencies and build output (npm install / npm run build make them)
+node_modules/
+dist/
+
+# your library: papers, notes, books, settings (incl. API keys) — never commit
+data/
+
+# screenshots and scratch output from the dev scripts
+.shots/
+stationery/shots/
+
+# local editor / OS / environment files
+.DS_Store
+*.log
+.env
+.env.*
+*.local
+.vscode/
+.idea/
+
+# Claude Code: only the project's skill is shared, never local settings
+.claude/*
+!.claude/skills/

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>文具盒 · Stationery set</title>
+<style>
+  :root{--paper:#f2efe7;--ink:#231e16;--muted:#857d6e;--rule:#ddd6c8;--card:#fbf8ef}
+  *{box-sizing:border-box} html,body{margin:0}
+  body{background-color:var(--paper);
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .42  0 0 0 0 .39  0 0 0 0 .33  .16 0 0 0 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
+    color:var(--ink);font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,'PingFang SC',monospace;padding:32px 20px 48px}
+  main{max-width:1180px;margin:0 auto}
+  header{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;border-bottom:1.5px solid var(--ink);padding-bottom:12px;margin-bottom:26px}
+  h1{font-size:22px;margin:0;letter-spacing:.04em} h1 small{font-size:13px;color:var(--muted);font-weight:600;margin-left:10px;letter-spacing:.06em}
+  header p{margin:0;color:var(--muted);font-size:12px;letter-spacing:.04em}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:22px}
+  a.card{display:flex;flex-direction:column;text-decoration:none;color:inherit;background:var(--card);border:1.5px solid var(--ink);border-radius:14px;
+    box-shadow:3px 3px 0 var(--ink);overflow:hidden;transition:transform .12s ease,box-shadow .12s ease}
+  a.card:hover{transform:translate(-2px,-2px);box-shadow:5px 5px 0 var(--ink)}
+  a.card:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}
+  .pic{position:relative;aspect-ratio:4/3;background:var(--paper);border-bottom:1.5px solid var(--ink)}
+  .pic img{width:100%;height:100%;object-fit:cover;display:block}
+  .num{position:absolute;left:10px;top:10px;font-weight:800;font-size:11px;letter-spacing:.08em;background:var(--card);border:1.5px solid var(--ink);border-radius:999px;padding:2px 9px}
+  .body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px;flex:1}
+  .name{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .name b{font-size:17px;letter-spacing:.04em} .name span{color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  .row{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+  .row i{font-style:normal;font-size:10.5px;font-weight:800;letter-spacing:.1em;color:var(--muted);width:2.6em}
+  .chip{font-size:11.5px;font-weight:700;border:1.2px solid var(--ink);border-radius:7px;padding:2px 7px;background:var(--paper)}
+  .meme .chip{background:#fff1bf}
+  .play{margin-top:auto;align-self:flex-end;font-weight:800;font-size:12px;letter-spacing:.08em;border:1.5px solid var(--ink);border-radius:999px;padding:4px 13px;background:var(--ink);color:var(--paper)}
+  footer{margin-top:34px;color:var(--muted);font-size:11px;letter-spacing:.06em;text-align:right}
+</style></head><body>
+<main>
+  <header>
+    <h1>文具盒<small>STATIONERY SET · FIG. 01–14</small></h1>
+    <p>每件文具：正经用法 + 上学那会儿的用法</p>
+  </header>
+  <div class="grid" id="grid"></div>
+  <footer>Colorfigures · 拖动可旋转，See-through 看内部结构</footer>
+</main>
+<script>
+const SET = [
+  { n:'01', file:'01-mechanical-pencil.html', zh:'自动铅笔', en:'Mechanical pencil', use:['按一下','写答案','加芯'], meme:['考试狂按','断芯弹到前桌','转笔'] },
+  { n:'02', file:'02-click-pen.html', zh:'按动中性笔', en:'Click gel pen', use:['按一下','写听写'], meme:['考试狂按','画圈出水','弹簧火箭'] },
+  { n:'03', file:'03-fountain-pen.html', zh:'钢笔', en:'Fountain pen', use:['拔帽','吸墨水','练字'], meme:['甩笔','挤墨画梅花'] },
+  { n:'04', file:'04-correction-tape.html', zh:'修正带', en:'Correction tape', use:['涂改','写上新答案'], meme:['桌上拉跑道','铅笔转紧'] },
+  { n:'05', file:'05-crank-sharpener.html', zh:'手摇削笔机', en:'Crank sharpener', use:['装铅笔','摇','倒笔屑'], meme:['削尖了一写就断','停不下来一直摇'] },
+  { n:'06', file:'06-eraser.html', zh:'橡皮', en:'Eraser', use:['擦掉','吹橡皮屑'], meme:['用力擦破纸','纸套里的名字','弹橡皮','三八线'] },
+  { n:'07', file:'07-steel-ruler.html', zh:'钢尺', en:'Steel ruler', use:['量一量','画直线'], meme:['桌边弹尺子','背面乘法口诀'] },
+  { n:'08', file:'08-compass.html', zh:'圆规', en:'Compass', use:['张开','画圆'], meme:['针滑了画蚊香','在桌上刻"早"'] },
+  { n:'09', file:'09-stapler.html', zh:'订书机', en:'Stapler', use:['装书钉','订作业'], meme:['空按咔嚓','订一沓卷子卡钉'] },
+  { n:'10', file:'10-calculator.html', zh:'计算器', en:'Calculator', use:['按键真能算','算一道题'], meme:['倒过来 hELLO','除以零','狂按等号','遮住太阳能板'] },
+  { n:'11', file:'11-pencil-case.html', zh:'多功能文具盒', en:'Pencil case', use:['开盖','翻面开','侧边按钮'], meme:['全部按开','啪啪开合'] },
+  { n:'12', file:'12-sticky-notes.html', zh:'便利贴', en:'Sticky notes', use:['写一张','撕下贴上'], meme:['翻页动画','贴"我是猪"'] },
+  { n:'13', file:'13-washi-tape.html', zh:'和纸胶带', en:'Washi tape', use:['撕一段','贴手账','换花色'], meme:['找胶带头','撕歪了'] },
+  { n:'14', file:'14-clips.html', zh:'长尾夹和回形针', en:'Clips', use:['夹住试卷','别回形针'], meme:['掰直回形针','串成链子','拆把手'] },
+];
+const chips = a => a.map(t => `<span class="chip">${t}</span>`).join('');
+document.getElementById('grid').innerHTML = SET.map(x => `
+  <a class="card" href="${x.file}">
+    <div class="pic"><img src="thumbs/${x.n}.png" alt="${x.zh}" loading="lazy"><span class="num">FIG. ${x.n}</span></div>
+    <div class="body">
+      <div class="name"><b>${x.zh}</b><span>${x.en}</span></div>
+      ${x.use.length ? `<div class="row"><i>用法</i>${chips(x.use)}</div>` : ''}
+      ${x.meme.length ? `<div class="row meme"><i>梗</i>${chips(x.meme)}</div>` : ''}
+      <span class="play">打开 ▸</span>
+    </div>
+  </a>`).join('');
+</script>
+</body></html>

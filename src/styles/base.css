@@ -1,0 +1,158 @@
+:root {
+  --paper: #f2efe7;
+  --ink: #231e16;
+  --ink-soft: rgba(35, 30, 22, .82);
+  --hair: rgba(35, 30, 22, .6);
+  --muted: #857d6e;
+  --rule: #ddd6c8;
+  --shadow: #41538f;
+  --page: #fcfbf6;
+  --card: #fbf8ef;
+  --wood: #d9a66a;
+  --wood-l: #e8b878;
+  --wood-d: #9a5d2a;
+  --mustard: #f4b829;
+  --mustard-l: #ffd96a;
+  --tomato: #ea6342;
+  --tomato-l: #ff8f6e;
+  --tomato-d: #ac3a2c;
+  --mint: #82c9a4;
+  --mint-l: #c6eed6;
+  --mint-d: #3d8c70;
+  --cobalt: #709ae0;
+  --cobalt-l: #adc6f3;
+  --cobalt-d: #4065b8;
+  --blush: #f4a5ba;
+  --blush-l: #ffd3dc;
+  --sticky: #fff3b8;
+  --user-ink: #2a4a9e;
+  --ai-ink: #38352f;
+  --accent: #cf5038;
+  /* UI: hard ink offsets, like the stationery figures' buttons and cards */
+  --sh-1: 2px 2px 0 var(--ink);
+  --sh-2: 3px 3px 0 var(--ink);
+  --sh-3: 4px 4px 0 var(--ink);
+  --f-user: "Caveat", "Long Cang", "LXGW WenKai", cursive;
+  --f-ai: "Kalam", "LXGW WenKai", cursive;
+  --f-ui: ui-monospace, SFMono-Regular, Menlo, "PingFang SC", "Hiragino Sans GB", "LXGW WenKai", monospace;
+  --f-title: ui-monospace, SFMono-Regular, Menlo, "PingFang SC", "Hiragino Sans GB", "LXGW WenKai", monospace;
+  --f-type: ui-monospace, SFMono-Regular, Menlo, "PingFang SC", "Hiragino Sans GB", "LXGW WenKai", monospace;
+  --f-mono: "Courier Prime", "LXGW WenKai", monospace;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.4 var(--f-ui);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+::selection { background: rgba(244, 184, 41, 0.45); }
+
+#app { position: fixed; inset: 0; }
+
+/* ---------- the desk ---------- */
+/* The room: the 3D desk scene (src/scene) is drawn on the stage; only the paper moves over it. */
+#viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background-color: var(--paper);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  contain: strict;
+}
+#viewport.panning, #viewport.panning * { cursor: grabbing !important; }
+#viewport.space-pan, #viewport.space-pan * { cursor: grab !important; }
+
+#world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  transform-origin: 0 0;
+}
+.layer { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; }
+svg.layer { pointer-events: none; }
+.layer.top { pointer-events: none; }
+
+.stage { position: absolute; inset: 0; pointer-events: none; overflow: hidden; contain: strict; }
+
+/* ---------- pages ---------- */
+.page {
+  position: absolute;
+  transform-origin: 50% 50%;
+}
+.pg-shadow {
+  position: absolute;
+  inset: 0;
+  /* a sheet lying flat casts a thin flat shadow, lower right */
+  background: var(--shadow);
+  transform: translate(5px, 6px);
+}
+.pg-sheet {
+  position: absolute;
+  inset: 0;
+  background-color: var(--page);
+}
+/* a whisper of paper grain over the print, no blend modes */
+.pg-sheet::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--tex-page);
+  background-size: 200px 200px;
+  opacity: .5;
+  pointer-events: none;
+}
+.pg-print {
+  position: absolute;
+  inset: 9% 11% 9% 11%;
+  opacity: 0;
+  transition: opacity .4s;
+  background: repeating-linear-gradient(180deg, rgba(35, 30, 22, .09) 0 5px, transparent 5px 15px);
+  -webkit-mask: linear-gradient(90deg, #000 70%, transparent 100%);
+}
+.page:not(.printed) .pg-print { opacity: 1; }
+.page.queued:not(.printed) .pg-print { animation: printing 1.6s ease-in-out infinite alternate; }
+@keyframes printing { from { opacity: .45; } to { opacity: 1; } }
+.pg-raster {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+.pg-ink {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.pg-outline { fill: none; stroke: var(--ink); stroke-width: 1; stroke-opacity: .8; stroke-linejoin: round; }
+.pg-notes { position: absolute; inset: 0; pointer-events: none; }
+.pg-num {
+  position: absolute;
+  right: -2px;
+  top: -20px;
+  font: 12px/1 var(--f-type);
+  letter-spacing: .06em;
+  color: rgba(35, 30, 22, .55);
+  pointer-events: none;
+}
+
+/* selection & hints on the page ink layer */
+.g-sel path { fill: rgba(42, 74, 158, 0.18); stroke: none; }
+.g-sel .sel-edge { fill: none; stroke: var(--user-ink); stroke-width: .8; stroke-opacity: .55; stroke-linecap: round; }
+.g-hint .hint-box { fill: rgba(244, 184, 41, .07); stroke: var(--ink); stroke-width: 1; stroke-dasharray: 5 4; stroke-opacity: .6; }
+.g-hint .hint-label { font: 9.5px var(--f-type); letter-spacing: .04em; fill: var(--ink); fill-opacity: .7; }

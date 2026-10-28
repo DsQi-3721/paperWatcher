@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>按动中性笔</title></head><body>
+<script src="core.js"></script>
+<script src="kit.js"></script>
+<script>
+/* Fig. 02 — Retractable gel pen (0.5 mm, push button), lying on an English dictation sheet on a desk.
+   The desk is turned toward the viewer (kit deskSetup): u along its front edge, v toward the viewer; 1 unit = 1 mm.
+   The pen is drawn on its own axis: s = mm from the hole in the front cone toward the push button.
+
+   How it really works (each button is one of these):
+   1. Click (rotating cam, the "Parker" mechanism): the button is the back end of a plunger whose front end is a crown of
+      angled teeth. In front of it sits the rotor: a short cylinder with matching teeth at its back and four lugs on its
+      side. The lugs ride in channels between four ribs moulded inside the barrel; each rib ends in a V-notch.
+      Pressing pushes plunger, rotor and refill forward against the return spring until the lugs clear the ribs; the
+      angled teeth turn the rotor a little. Let go: the spring pushes everything back, the lugs land on the ribs' angled
+      ends and turn on: they either rest in the notches (refill held out, button low) or slide back down the channels
+      (refill drawn in, button high). Each click turns the rotor 45 degrees and swaps the two.
+   2. The return spring sits round the refill's tip, between a step inside the front cone and a collar on the refill.
+   3. The gel refill: a clear tube, the ink column at the tip end, a clear grease plug (follower) on top that follows the
+      ink down as it is used, a metal tip with a 0.5 mm ball. A pen left a week in the pencil case has dried gel at the
+      ball: it skips until the ball is rolled wet again.
+   Student life: clicking it twelve times in an exam, scribbling circles in the corner to get the ink going, unscrewing
+   the front to launch the spring across the desk (and then the pen won't retract), "逢考必过" printed on the barrel.
+
+   Parts:
+   CASE    front cone . rubber grip (16 ridges) . chrome joint ring . barrel (print on two sides) . back ring . clip blade .
+           clip tip . push button (plunger end)
+   MECH    plunger . plunger teeth . rotor . rotor teeth . 4 rotor lugs . 4 barrel ribs (V-notched ends) . return spring .
+           spring step (inside the cone)
+   REFILL  ball . tip cone . tip holder . collar . clear tube . gel ink column . follower plug
+   DESK    desk board . dictation sheet (printed words, handwritten answers, scribbled circles) */
+
+/* ---------- desk and sheet (desk terms: u right along the front edge, v toward the viewer) ---------- */
+const DLU = 176, DLV = 120, BH = 4, ZP = BH + .4;
+const DESK = deskSetup(DLU, DLV, 62, 36);
+const BTOP = deskTop(DLU, DLV, BH, 6);
+const SHEET = [-80, -40, 64, 44];
+const QS = [ { v: -16, q: '1.  你好', a: 'hello' }, { v: -2, q: '2.  很好的', a: 'nice' }, { v: 12, q: '3.  狮子', a: 'lion' } ];
+const GEL = '#1d2130';
+const ANS = QS.map((q, i) => deskHand(q.a, -36, q.v, ZP + .02, 6, 5 + i*9, .7));
+// scribbled loops in the sheet's top right corner: the ball rolls until the gel flows
+const SCRIB = [Array.from({length: 281}, (_, i) => { const t = i/280, a = t*7*2*Math.PI; return dk(32 + 24*t + 4.4*Math.cos(a), -28.5 + 4*Math.sin(a), ZP + .02); })];
+const SCRIB_DRY = .55;                                            // share of the scribble before the ink comes
+
+/* ---------- the pen ---------- */
+const R_BAR = 5.3, R_RING = 5.6, R_GRIPP = 4.9;
+const RS_IN = 2.5, RS_OUT = -2.3, RS_PUSH = -5.5;               // where the ball is: drawn in, held out, pushed to the stop
+const REF_L = 108, ROT_L = 9, PL_L = 15.5;                       // refill, rotor, plunger lengths
+const SPR_FREE = 17, SPR_R = 1.7;
+const REST = { o: dk(-66, 34, ZP + R_RING), d: norm(dkv(1, -.03, 0)) };
+const HELD = { o: dk(-62, 8, ZP + 30), d: norm(dkv(1, -.12, .1)) };
+const WRITE_D = norm(dkv(.62, .5, .6));
+const SPR_DESK = { c: dk(22, -50, BH + SPR_R), a: norm(dkv(.8, .6, 0)) };     // where the launched spring lands
+const poseLerp = (a, b, k) => ({ o: kLerp(a.o, b.o, k), d: norm(kLerp(a.d, b.d, k)) });
+const lifted = (pose, k, h = 10) => ({ o: kAdd(pose.o, [0, 0, h*Math.sin(Math.PI*k)]), d: pose.d });
+const tipAt = (p, rs) => ({ o: kAt(p, WRITE_D, -rs), d: WRITE_D });     // pose with the ball at p
+const boxAround = (pts, r) => [[0,1,2].map(i => Math.min(...pts.map(p => p[i])) - r), [0,1,2].map(i => Math.max(...pts.map(p => p[i])) + r)];
+
+// the front section (cone + grip + joint ring) unscrews: turns 2.5 times coming 9 mm off, then is pulled clear and lifted
+function frontOf(st){
+  const off = -(9*st.front + 40*st.frontOff), turn = st.front*5*Math.PI, lift = 12*st.frontLift;
+  return { off, turn, lift, o: kAdd(kAt(st.pose.o, st.pose.d, off), [0, 0, lift]) };
+}
+// the spring: seated in the pen, sliding off the tip, flying, or lying on the desk -> { o, d, s0, s1 } or null
+function springOf(st){
+  const { o, d } = st.pose, fr = frontOf(st);
+  if (st.spr === 'pen'){
+    const seat = fr.lift > .5 ? -1e9 : 9 + fr.off, s1 = st.rs + 22 - 30*st.sprSlide;
+    return { o, d, s0: Math.min(Math.max(seat, s1 - SPR_FREE), s1 - 2), s1, inside: st.front === 0 && st.frontOff === 0 };
+  }
+  if (st.spr === 'fly'){ const f = st.sprFly; return { o: kAt(f.c, f.a, -SPR_FREE/2), d: f.a, s0: 0, s1: SPR_FREE }; }
+  if (st.spr === 'desk') return { o: kAt(SPR_DESK.c, SPR_DESK.a, -SPR_FREE/2), d: SPR_DESK.a, s0: 0, s1: SPR_FREE };
+  return null;
+}
+const springParts = (sp) => coilParts(sp.o, sp.d, sp.s0, sp.s1, SPR_R, 9, MAT.steel.l, .45);
+
+// print on two sides of the round barrel
+function barrelPrint(o, d){
+  const [e1, e2] = axisFrame(d); let s = '';
+  for (const [deg, str, at, size, col] of [[35, '逢考必过', 84, 3.4, '#c8352a'], [215, '0.5 GEL INK', 80, 2.5, INK], [125, '0.5 GEL INK', 80, 2.5, INK]]){
+    const a = deg*Math.PI/180, n = kAdd(kScl(e1, Math.cos(a)), kScl(e2, Math.sin(a)));
+    if (!vis(n)) continue;
+    const v = cross(n, d), p = kAdd(kAdd(kAt(o, d, at), kScl(n, R_BAR + .05)), kScl(v, -size*.35));
+    s += txOn(p, d, n, str, size, col, 800);
+  }
+  return s;
+}
+const grooves = (o, d, s0, s1, r, step) => { let s = ''; for (let x = s0; x < s1; x += step) for (const run of nearArc(kAt(o, d, x), d, r + .03, 30)) s += pd(run, false);
+  return s ? `<path d="${s}" fill="none" stroke="${INK}" stroke-width=".5" opacity=".7"/>` : ''; };
+
+// the refill's tip end as seen outside: ball, tip cone, holder (s from the ball)
+function refillTip(o, d, rs, sMax = 1e9){
+  const part = (a, b, r0, r1, M, w) => b > a && rs + a < sMax ? coaxSeg(o, d, { s0: rs + a, s1: Math.min(rs + b, sMax), r0, r1: r1 + (r0 - r1)*Math.max(0, (rs + b - sMax)/(b - a)), M, n: 14, w, shade: toneI }) : '';
+  const items = [
+    { name: 'ball', s0: rs, s1: rs + .6, svg: part(0, .6, .3, .3, MAT.steel, .6) },
+    { name: 'tcone', s0: rs + .5, s1: rs + 5, svg: part(.5, 5, .45, 1.0, MAT.steel, .7) },
+    { name: 'holder', s0: rs + 5, s1: rs + 10, svg: part(5, 10, 1.0, 1.35, MAT.brass, .8) } ];
+  return items.filter(x => x.svg);
+}
+// the refill tube, its ink and follower: ink first, the clear tube over it
+function refillTube(o, d, rs, ink, s0 = 10, s1 = REF_L){
+  const a = Math.max(rs + s0, rs + 10), b = rs + s1; if (b <= a) return '';
+  const inkEnd = rs + 10 + 80*ink, fol = [inkEnd, inkEnd + 3];
+  let s = '';
+  if (inkEnd > a) s += coaxSeg(o, d, { s0: a, s1: Math.min(inkEnd, b), r0: 1.5, M: { l:'#3a4058', m: GEL, d:'#0e1018' }, n: 14, w: .5, shade: toneI });
+  if (fol[1] > a && fol[0] < b) s += coaxSeg(o, d, { s0: Math.max(a, fol[0]), s1: Math.min(b, fol[1]), r0: 1.5, M: matOf('#e9efe6'), n: 14, w: .5, shade: toneI });
+  return s + `<g opacity=".5">${coaxSeg(o, d, { s0: a, s1: b, r0: 1.85, M: MAT.clear, n: 18, w: .8, shade: toneI, hole1: 1.5, bore: '#c9dde0' })}</g>`;
+}
+
+// the closed pen: a row of solids on its axis, the clip beside it; the front section apart while it is unscrewed
+function penBody(st, m){
+  const { o, d } = st.pose, [e1, e2] = axisFrame(d), fr = frontOf(st), items = [], loose = [];
+  const seg = (name, g, extra = '', over, org = o) => items.push({ name, s0: g.s0, s1: g.s1, over, svg: coaxSeg(org, d, g) + extra });
+  // the ball and tip, where they stick out of the cone
+  if (st.frontOff === 0 && st.front === 0){ if (st.rs < 0) for (const it of refillTip(o, d, st.rs, 0)) items.push(it); }
+  else {   // the front is coming off: the refill's front end, its collar and the spring show
+    for (const it of refillTip(o, d, st.rs)) items.push(it);
+    items.push({ name:'tube', s0: st.rs + 10, s1: 46, svg: refillTube(o, d, st.rs, st.ink, 10, 46 - st.rs), over: ['sprFar'] });
+    seg('collar', { s0: st.rs + 21, s1: st.rs + 22.5, r0: 2.2, M: MAT.plastic, n: 18, w: .7, shade: toneI }, '', ['tube', 'sprFar']);
+  }
+  const sp = springOf(st);
+  if (sp && st.spr === 'pen' && !sp.inside){ const c = springParts(sp);
+    items.push({ name:'sprFar', s0: sp.s0, s1: sp.s1, svg: c.far }, { name:'sprNear', s0: sp.s0, s1: sp.s1, svg: c.near, over: ['tube', 'collar', 'holder', 'tcone'] }); }
+  // front section: cone, ridged grip, joint ring
+  const fItems = [];
+  const fseg = (name, g, extra = '') => fItems.push({ name, s0: g.s0, s1: g.s1, svg: coaxSeg(fr.o, d, g) + extra });
+  fseg('cone', { s0: 0, s1: 13, r0: 1.25, r1: 4.4, M: MAT.plastic, n: 28, w: 1.2, hole0: .95 });
+  fseg('grip', { s0: 13, s1: 44, r0: R_GRIPP, M: MAT.rubber, n: 16, w: 1.4, edges: .45, phase: fr.turn }, grooves(fr.o, d, 15, 21, R_GRIPP, 2));
+  fseg('joint', { s0: 44, s1: 46, r0: 5.15, M: MAT.steel, n: 28, w: .9, hole1: st.front > .05 ? 4.6 : 0 });
+  if (fr.lift < 4){ for (const it of fItems) items.push({ ...it, s0: it.s0 + fr.off, s1: it.s1 + fr.off,
+      over: ['tube', 'collar', 'sprFar', 'sprNear', 'holder', 'tcone', 'ball'].filter(n => { const x = items.find(q => q.name === n); return x && x.s0 < it.s1 + fr.off && x.s1 > it.s0 + fr.off; }) }); }
+  else { const pts = [kAt(fr.o, d, 0), kAt(fr.o, d, 46)]; loose.push({ box: boxAround(pts, 5.2), svg: coaxOrder(d, fItems) }); }
+  // barrel, back ring, button
+  seg('barrel', { s0: 46, s1: 118, r0: R_BAR, M: m, n: 30, w: 1.6, hole0: st.front > .05 ? 4.3 : 0 }, barrelPrint(o, d));
+  const btnEnd = st.rs + REF_L + ROT_L + PL_L, flush = btnEnd < 128;
+  seg('ring', { s0: 118, s1: 127.5, r0: R_RING, M: MAT.plastic, n: 30, w: 1.3, hole1: 3.1, bore: flush ? DARK.l : '#1d1a16' }, '', ['barrel']);
+  if (!flush) items.push({ name:'btn', s0: 127.5, s1: btnEnd, svg: act('btn', coaxSeg(o, d, { s0: 127.4, s1: btnEnd - 1, r0: 3.0, M: DARK, n: 24, w: 1.1 })
+    + coaxSeg(o, d, { s0: btnEnd - 1, s1: btnEnd, r0: 3.0, r1: 2.2, M: DARK, n: 24, w: 1.1 })) });
+  // clip: blade from the back ring toward the tip, clear of the barrel, a rounded tip touching it
+  const bc = kAdd(kAt(o, d, 104), kScl(e2, 6.35));
+  const clip = obox(bc, d, e1, e2, 18, 1.7, .45, MAT.plastic, tone, .9)
+    + rod(kAdd(kAdd(kAt(o, d, 86.6), kScl(e2, 5.75)), kScl(e1, -1.7)), kAdd(kAdd(kAt(o, d, 86.6), kScl(e2, 5.75)), kScl(e1, 1.7)), .7, MAT.plastic, toneI, .8)
+    + obox(kAdd(kAt(o, d, 121), kScl(e2, 6.0)), d, e1, e2, 2.5, 1.7, .6, MAT.plastic, tone, .8);
+  const chain = coaxOrder(d, items);
+  return { svg: vis(e2) ? chain + clip : clip + chain, loose };
+}
+
+// see-through: refill, spring, rotor and plunger inside the barrel
+function penMech(st){
+  const { o, d } = st.pose, [e1, e2] = axisFrame(d), rs = st.rs, fr = frontOf(st);
+  const rot0 = rs + REF_L, pl0 = rot0 + ROT_L, th = st.theta*Math.PI/180;
+  const radial = a => kAdd(kScl(e1, Math.cos(a)), kScl(e2, Math.sin(a)));
+  const RIB = { l:'#c9c3b8', m:'#aaa397', d:'#857e72' }, ROTM = matOf('#f0f0ea'), PLM = DARK;
+  let back = '', front = '';
+  // barrel ribs (fixed, on the inside wall) and rotor lugs: the ones turned away go behind, the rest in front
+  for (let k = 0; k < 4; k++){ const a = k*Math.PI/2, rd = radial(a), c = kAdd(kAt(o, d, 116), kScl(rd, 3.75)), tg = cross(d, rd);
+    const rib = obox(c, d, tg, rd, 7, .7, .45, RIB, toneI, .7)
+      + `<path d="${pd([kAdd(kAt(o, d, 109), kAdd(kScl(rd, 3.4), kScl(tg, -.7))), kAdd(kAt(o, d, 110.2), kScl(rd, 3.4)), kAdd(kAt(o, d, 109), kAdd(kScl(rd, 3.4), kScl(tg, .7)))], false)}" fill="none" stroke="${INK}" stroke-width=".6"/>`;
+    if (vis(rd)) front += rib; else back += rib; }
+  const lugs = [[], []];
+  for (let k = 0; k < 4; k++){ const a = th + k*Math.PI/2, rd = radial(a), tg = cross(d, rd), c = kAdd(kAt(o, d, rot0 + 6.3), kScl(rd, 2.95));
+    lugs[vis(rd) ? 1 : 0].push(obox(c, d, tg, rd, 1.3, .55, .45, ROTM, toneI, .6)); }
+  // teeth: a zigzag round the plunger/rotor joint, near half only
+  const teeth = (s, r, n, ph) => { let out = ''; const pts = [];
+    for (let i = 0; i <= n*2; i++){ const a = ph + i/(n*2)*2*Math.PI, rd = radial(a); pts.push([kAdd(kAt(o, d, s + (i % 2 ? .8 : -.8)), kScl(rd, r + .02)), vis(rd)]); }
+    let run = []; for (const [p, v] of pts){ if (v) run.push(p); else { if (run.length > 1) out += pd(run, false); run = []; } } if (run.length > 1) out += pd(run, false);
+    return out ? `<path d="${out}" fill="none" stroke="${INK}" stroke-width=".7" stroke-linejoin="round"/>` : ''; };
+  const sp = springOf(st), sprIn = sp && st.spr === 'pen' ? springParts(sp) : null;
+  let s = back;
+  s += refillTube(o, d, rs, st.ink);
+  if (sprIn) s += sprIn.far;
+  s += lugs[0].join('');
+  const mid = [
+    ...refillTip(o, d, rs),
+    { name:'collar', s0: rs + 21, s1: rs + 22.5, svg: coaxSeg(o, d, { s0: rs + 21, s1: rs + 22.5, r0: 2.2, M: MAT.plastic, n: 18, w: .7, shade: toneI }) },
+    { name:'step', s0: 8 + fr.off, s1: 9 + fr.off, over: ['holder', 'tcone', 'ball'], svg: fr.lift < 2 ? coaxSeg(fr.o, d, { s0: 8, s1: 9, r0: 2.7, M: matOf('#d8d4ca'), n: 22, w: .6, shade: toneI, hole0: 1.25, hole1: 1.25 }) : '' },
+    { name:'rotor', s0: rot0, s1: pl0, svg: coaxSeg(o, d, { s0: rot0, s1: pl0, r0: 2.5, M: ROTM, n: 20, w: .9, shade: toneI }) + teeth(pl0, 2.5, 6, th) },
+    { name:'plBody', s0: pl0, s1: pl0 + 9, svg: coaxSeg(o, d, { s0: pl0, s1: pl0 + 9, r0: 2.5, M: PLM, n: 20, w: .9, shade: toneI }) + teeth(pl0 + .02, 2.52, 6, th + Math.PI/6) },
+    { name:'plFlange', s0: pl0 + 5.5, s1: pl0 + 7, over: ['plBody'], svg: coaxSeg(o, d, { s0: pl0 + 5.5, s1: pl0 + 7, r0: 3.6, M: PLM, n: 20, w: .8, shade: toneI }) },
+    { name:'plStem', s0: pl0 + 9, s1: pl0 + PL_L - 1, svg: coaxSeg(o, d, { s0: pl0 + 9, s1: pl0 + PL_L - 1, r0: 3.0, M: PLM, n: 20, w: .9, shade: toneI }) } ];
+  s += coaxOrder(d, mid);
+  s += lugs[1].join('');
+  if (sprIn) s += sprIn.near;
+  return s + front;
+}
+
+/* ---------- the sheet ---------- */
+function dictSheet(st){
+  const [u0, v0, u1, v1] = SHEET, z = ZP + .02;
+  let s = deskSheet(u0, v0, u1, v1, BH, .4, { rule: 14, rule0: 26.5, margin: 6 });
+  s += act('sheet', fill(pd(rectUV(u0, v0, u1, v1).map(([u, v]) => dk(u, v, z))), 'transparent'));
+  s += deskText(-72, -30, z, '英语听写', 6.2, INK, 800) + deskText(-10, -30, z, 'Unit 3', 4.2, '#2c2a26', 700);
+  for (const q of QS) s += deskText(-72, q.v, z, q.q, 4.6, '#2c2a26', 700)
+    + `<path d="${pd([dk(-38, q.v + 1.4, z), dk(-2, q.v + 1.4, z)], false)}" fill="none" stroke="#2c2a26" stroke-width=".55"/>`;
+  // handwriting: solid where the gel flowed, broken where the ball was dry
+  const solid = [], skip = [];
+  for (let i = 0; i < 3; i++) if (st.done[i]) (st.skip[i] ? skip : solid).push(...ANS[i]);
+  if (st.ans) (st.ans.skip ? skip : solid).push(...traceStrokes(ANS[st.ans.i], st.ans.dist).done);
+  if (st.scrib > 0){ const L = strokesLength(SCRIB), done = traceStrokes(SCRIB, st.scrib*L).done[0] || [];
+    const cut = Math.round(SCRIB_DRY*280); skip.push(done.slice(0, cut + 1)); if (done.length > cut) (st.scribWet ? solid : skip).push(done.slice(cut)); }
+  s += graphite(solid.filter(q => q.length > 1), GEL, .55, .95);
+  const sk = skip.filter(q => q.length > 1);
+  if (sk.length) s += `<path d="${sk.map(q => pd(q, false)).join('')}" fill="none" stroke="${GEL}" style="stroke-width:.5;stroke-dasharray:1.4 1.9" stroke-linecap="round" opacity=".55"/>`;
+  return s;
+}
+
+/* ---------- scene ---------- */
+function penPts(st){ const { o, d } = st.pose, fr = frontOf(st), pts = [];
+  for (const [s0, r] of [[Math.min(0, st.rs), .4], [46, R_BAR], [127.5, R_RING], [st.rs + REF_L + ROT_L + PL_L, 3]]) pts.push(...axisRing(kAt(o, d, s0), d, r, 8));
+  for (const [s0, r] of [[0, 1.3], [13, 4.4], [46, 5.2]]) pts.push(...axisRing(kAt(fr.o, d, s0), d, r, 8));
+  pts.push(kAdd(kAt(o, d, 104), kScl(axisFrame(d)[1], 6.8))); return pts; }
+function scene(st, m){
+  const k = ease(st.xr || 0);
+  let s = deskBoard(DLU, DLV, BH, 6, WOOD) + dictSheet(st);
+  const pp = penPts(st);
+  s += castShadow(pp, ZP, BTOP);
+  const sp = springOf(st);
+  const pb = penBody(st, m);
+  let pen = pb.svg;
+  if (k > 0) pen = `<g opacity="${f(1 - .8*k)}">${pen}</g><g opacity="${f(k)}">${penMech(st)}</g>`;
+  const parts = [{ box: boxAround(pp, 0), svg: pen }, ...pb.loose];
+  if (sp && st.spr !== 'pen'){ const c = springParts(sp), ends = [kAt(sp.o, sp.d, sp.s0), kAt(sp.o, sp.d, sp.s1)];
+    if (st.spr === 'desk') s += castShadow([...axisRing(ends[0], sp.d, SPR_R, 8), ...axisRing(ends[1], sp.d, SPR_R, 8)], BH, BTOP);
+    parts.push({ box: boxAround(ends, SPR_R), svg: c.far + c.near }); }
+  s += byDepth(parts);
+  s += labels(st, k);
+  return s;
+}
+function labels(st, k){
+  const { o, d } = st.pose, [e1, e2] = axisFrame(d), rs = st.rs, fr = frontOf(st), pp = penPts(st);
+  const B = [Math.min(...pp.map(p => p[0])), Math.max(...pp.map(p => p[0])), Math.min(...pp.map(p => p[1])), Math.max(...pp.map(p => p[1])), 0, 12];
+  const sp = springOf(st), sprAt = sp ? kAt(sp.o, sp.d, (sp.s0 + sp.s1)/2) : null;
+  if (k > .6) return zhCallouts([
+    { at: kAt(o, d, rs + REF_L + ROT_L + 12), text: '按杆', on: st.pressing },
+    { at: kAdd(kAt(o, d, rs + REF_L + 4), kScl(e2, 2.5)), text: '旋转凸轮', on: st.pressing },
+    { at: kAdd(kAt(o, d, 116), kScl(e2, -3.9)), text: '导轨', on: st.pressing },
+    { at: kAt(o, d, rs + 60), text: '笔芯', on: !!st.ans },
+    { at: kAt(o, d, rs + 10 + 40*st.ink), text: '墨水', on: !!st.ans },
+    { at: kAt(o, d, rs + 11.5 + 80*st.ink), text: '跟随剂', on: false },
+    ...(sp && st.spr === 'pen' ? [{ at: sprAt, text: '弹簧', on: st.pressing }] : []),
+    { at: kAt(o, d, rs + .3), text: '笔珠', on: !!st.ans || st.scribbling } ], B);
+  return zhCallouts([
+    { at: kAt(o, d, rs + REF_L + ROT_L + PL_L - 1), text: '按头', on: st.pressing },
+    { at: kAdd(kAt(o, d, 100), kScl(e2, 6.8)), text: '笔夹', on: false },
+    { at: kAdd(kAt(o, d, 70), kScl(e2, R_BAR)), text: '笔杆', on: false },
+    { at: kAt(fr.o, d, 30), text: '握胶', on: st.front > 0 },
+    { at: kAt(fr.o, d, 6), text: '笔头', on: false },
+    ...(rs < 0 ? [{ at: kAt(o, d, rs), text: '笔尖', on: !!st.ans }] : []),
+    ...(sp && st.spr !== 'pen' ? [{ at: sprAt, text: '弹簧', on: st.spr === 'fly' }] : []) ], B);
+}
+
+/* ---------- actions ---------- */
+let ui;
+const BUSY = { click: '咔哒还没按完', frenzy: '还在狂按……', write: '正在写', scrib: '还在画圈', rocket: '正在拆笔' };
+const busy = () => { if (!kBusy()) return false; ui.flash(BUSY[kBusy()] || '等一下'); return true; };
+const atRest = st => st.pose === REST;
+const backToRest = st => atRest(st) ? null : { ms: 420, start(){ this.from = st.pose; }, step(k){ st.pose = lifted(poseLerp(this.from, REST, ease(k)), k, 8); }, end(){ st.pose = REST; } };
+// one click: plunger, rotor and refill go in to the stop (the rotor turns half a step on the teeth), then the spring
+// brings them back and the rotor turns the other half: refill held out or drawn in. No spring: nothing comes back.
+function clickSegs(st, fast){
+  let r0 = 0, t0 = 0, goOut = false;
+  return [{ ms: fast ? 45 : 85, start(){ r0 = st.rs; t0 = st.theta; goOut = !st.out; st.pressing = true; },
+      step(k){ st.rs = r0 + (RS_PUSH - r0)*ease(k); st.theta = t0 + 22.5*ease(k); }, end(){ st.clicks++; } },
+    { ms: fast ? 55 : 130, start(){ r0 = st.rs; t0 = st.theta; },
+      step(k){ st.theta = t0 + 22.5*ease(k); if (st.noSpring) return; st.rs = r0 + ((goOut ? RS_OUT : RS_IN) - r0)*ease(k); },
+      end(){ st.out = goOut; st.pressing = false; } }];
+}
+function click(st){ if (busy()) return;
+  kPlay(ui, 'click', [backToRest(st), ...clickSegs(st, false)], () => {
+    if (st.noSpring) ui.flash('弹簧还在桌上——按头按下去就弹不回来了'); }); }
+function frenzy(st){ if (busy()) return;
+  const segs = [backToRest(st)]; for (let i = 0; i < 12; i++) segs.push(...clickSegs(st, true));
+  kPlay(ui, 'frenzy', segs, () => ui.flash(st.noSpring ? '按了十二下，一下都没弹回来——弹簧还在桌上' : '咔哒咔哒咔哒……后桌：你再按一下试试', 2400)); }
+// out first, if the refill is drawn in (the real missing step)
+const outSegs = st => st.rs > 0 ? clickSegs(st, false) : [];
+function write(st){ if (busy()) return;
+  if (st.front > 0) return ui.flash('笔头还拆着');
+  if (st.ink <= .02) return ui.flash('笔芯写空了');
+  if (st.done.every(Boolean)){ st.done = [false, false, false]; st.skip = [false, false, false]; st.scrib = 0; st.scribWet = false; ui.flash('听写写完了，换一张'); }
+  const i = st.done.indexOf(false), sk = ANS[i], len = strokesLength(sk), dry = st.dry > .3;
+  if (st.rs > 0) ui.flash('笔尖还缩着，先按出来');
+  kPlay(ui, 'write', [backToRest(st), ...outSegs(st),
+    { ms: 420, start(){ this.from = st.pose; }, step(k){ st.pose = lifted(poseLerp(this.from, tipAt(sk[0][0], st.rs), ease(k)), k, 14); } },
+    { ms: Math.max(600, len/34*1000), start(){ st.ans = { i, dist: 0, skip: dry }; },
+      step(k){ st.ans.dist = k*len; st.pose = tipAt(traceStrokes(sk, st.ans.dist).tip, st.rs); },
+      end(){ st.done[i] = true; st.skip[i] = dry; st.ans = null; st.ink = Math.max(0, st.ink - .012); } },
+    { ms: 420, start(){ this.from = st.pose; }, step(k){ st.pose = lifted(poseLerp(this.from, REST, ease(k)), k, 10); }, end(){ st.pose = REST; } } ],
+    () => { if (dry) ui.flash('断水了，写出来一截一截的——在角上画几圈', 2400); });
+}
+// scribble loops in the corner: the ball rolls, the dried gel at it softens, the ink comes
+function scribble(st){ if (busy()) return;
+  if (st.front > 0) return ui.flash('笔头还拆着');
+  const wasDry = st.dry > .3, L = strokesLength(SCRIB);
+  kPlay(ui, 'scrib', [backToRest(st), ...outSegs(st),
+    { ms: 420, start(){ this.from = st.pose; }, step(k){ st.pose = lifted(poseLerp(this.from, tipAt(SCRIB[0][0], st.rs), ease(k)), k, 14); } },
+    { ms: 2200, start(){ st.scrib = 0; st.scribWet = !wasDry; st.scribbling = true; },
+      step(k){ st.scrib = k; if (k > SCRIB_DRY){ st.scribWet = true; st.dry = 0; } st.pose = tipAt(traceStrokes(SCRIB, k*L).tip, st.rs); },
+      end(){ st.scribbling = false; st.ink = Math.max(0, st.ink - .01); } },
+    { ms: 420, start(){ this.from = st.pose; }, step(k){ st.pose = lifted(poseLerp(this.from, REST, ease(k)), k, 10); }, end(){ st.pose = REST; } } ],
+    () => ui.flash(wasDry ? '画到第四圈，出水了！' : '本来就出水……纸角又多了一团圈圈', 2200));
+}
+// unscrew the front, launch the spring off the refill across the desk; screw the front back on without it
+const hold = st => [backToRest(st), { ms: 380, start(){ this.from = st.pose; }, step(k){ st.pose = poseLerp(this.from, HELD, ease(k)); }, end(){ st.pose = HELD; } }];
+const unscrew = st => [{ ms: 700, step(k){ st.front = ease(k); } }, { ms: 320, step(k){ st.frontOff = ease(k); } }, { ms: 260, step(k){ st.frontLift = ease(k); } }];
+const screwOn = st => [{ ms: 260, step(k){ st.frontLift = 1 - ease(k); } }, { ms: 320, step(k){ st.frontOff = 1 - ease(k); } }, { ms: 650, step(k){ st.front = 1 - ease(k); } }];
+const putDown = st => ({ ms: 420, start(){ this.from = st.pose; }, step(k){ st.pose = poseLerp(this.from, REST, ease(k)); }, end(){ st.pose = REST; } });
+function launch(st){ if (busy()) return;
+  if (st.spr !== 'pen') return ui.flash('弹簧已经在桌上了');
+  let p0 = null, a0 = null;
+  kPlay(ui, 'rocket', [...hold(st), ...unscrew(st),
+    { ms: 300, step(k){ st.sprSlide = ease(k); } },
+    { ms: 820, start(){ const sp = springOf(st); p0 = kAt(sp.o, sp.d, (sp.s0 + sp.s1)/2); a0 = sp.d; st.spr = 'fly'; st.sprFly = { c: p0, a: a0 }; },
+      step(k){ const c = kLerp(p0, SPR_DESK.c, k); c[2] += 48*Math.sin(Math.PI*k)*(1 - .25*k); const sp = k*3.2*Math.PI;
+        st.sprFly = { c, a: norm(kLerp(kAdd(kScl(a0, Math.cos(sp)), [0, 0, Math.sin(sp)]), SPR_DESK.a, k*k)) }; },
+      end(){ st.spr = 'desk'; st.sprSlide = 0; st.noSpring = true; ui.flash('弹簧火箭发射！飞过半张桌子落在了前面', 1800); } },
+    ...screwOn(st), putDown(st)],
+    () => ui.flash('笔装回去了……弹簧还在桌上', 2000));
+}
+function pickUp(st){ if (busy()) return;
+  if (st.spr === 'pen') return ui.flash('弹簧还在笔里');
+  let p1 = null;
+  kPlay(ui, 'rocket', [...hold(st), ...unscrew(st),
+    { ms: 700, start(){ st.sprSlide = 1; st.spr = 'pen'; const sp = springOf(st); p1 = { c: kAt(sp.o, sp.d, (sp.s0 + sp.s1)/2), a: sp.d }; st.spr = 'fly'; st.sprFly = { c: SPR_DESK.c, a: SPR_DESK.a }; },
+      step(k){ const c = kLerp(SPR_DESK.c, p1.c, ease(k)); c[2] += 22*Math.sin(Math.PI*k); st.sprFly = { c, a: norm(kLerp(SPR_DESK.a, p1.a, ease(k))) }; },
+      end(){ st.spr = 'pen'; } },
+    { ms: 300, step(k){ st.sprSlide = 1 - ease(k); } },
+    ...screwOn(st),
+    { ms: 160, start(){ this.r0 = st.rs; st.noSpring = false; }, step(k){ st.rs = this.r0 + ((st.out ? RS_OUT : RS_IN) - this.r0)*ease(k); } },
+    putDown(st)],
+    () => ui.flash('弹簧装回去了，又能按了'));
+}
+
+ui = mountFigure({
+  fig:'02', turn:'full', title:'按动中性笔', size: DESK.size, center: DESK.center, palette:'mint',
+  state:{ pose: REST, rs: RS_IN, out: false, theta: 45, clicks: 0, ink: .86, dry: 1, pressing: false,
+    done: [false, false, false], skip: [false, false, false], ans: null, scrib: 0, scribWet: false, scribbling: false,
+    front: 0, frontOff: 0, frontLift: 0, spr: 'pen', sprSlide: 0, sprFly: null, noSpring: false },
+  scene,
+  stats: st => [ { label:'咔哒', value: String(st.clicks) }, { label:'墨水', value: Math.round(st.ink*100) + '%', small: true } ],
+  buttons:[
+    { label:'按一下', onClick: click },
+    { label:'写听写', onClick: write },
+    { label:'考试狂按', onClick: frenzy },
+    { label:'画圈出水', onClick: scribble },
+    { label:'弹簧火箭', choices: st => [
+      { label:'拆开发射', onClick: launch, disabled: st.spr !== 'pen', why:'弹簧已经在桌上了' },
+      { label:'捡回来装好', onClick: pickUp, disabled: st.spr === 'pen', why:'弹簧还在笔里' } ] },
+  ],
+  acts:{ btn: st => click(st), sheet: st => write(st) },
+  params:(st, q) => {
+    if (q.get('out') === '1'){ st.out = true; st.rs = RS_OUT; st.theta = 0; }
+    if (q.has('rs')) st.rs = +q.get('rs');
+    if (q.has('dry')) st.dry = +q.get('dry');
+    if (q.has('ink')) st.ink = +q.get('ink');
+    if (q.has('ans')) for (let i = 0; i < Math.min(3, +q.get('ans')); i++) st.done[i] = true;
+    if (q.has('scrib')){ st.scrib = +q.get('scrib'); st.scribWet = st.scrib > SCRIB_DRY; }
+    if (q.get('pose') === 'write'){ st.out = true; st.rs = RS_OUT; st.pose = tipAt(ANS[1][0][0], RS_OUT); }
+    if (q.get('pose') === 'held') st.pose = HELD;
+    if (q.has('front')){ st.pose = HELD; st.front = Math.min(1, +q.get('front')); st.frontOff = Math.max(0, Math.min(1, +q.get('front') - 1)); st.frontLift = Math.max(0, Math.min(1, +q.get('front') - 2)); }
+    if (q.has('slide')) st.sprSlide = +q.get('slide');
+    if (q.get('spring') === 'desk'){ st.spr = 'desk'; st.noSpring = true; }
+  },
+});
+xrMount(() => ui, () => '');
+</script></body></html>

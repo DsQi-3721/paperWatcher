@@ -1,0 +1,343 @@
+// Fig. 13 和纸胶带 — desk-scene object, ported from stationery/src/13-washi-tape.html by scripts/port-figures.mjs.
+// The figure's own code runs inside create(ctx): ctx.desk is its place on the shared desk (dk, dkv, DU, DV, desk*),
+// ctx.ui its ui (animate, invalidate, flash), ctx.play its one-at-a-time action lock; castShadow and labels are
+// collected by the scene.
+import { AZ_MAX, AZ_MIN, BOARD, C, CAM_B0, CAM_D, CAM_K, CAM_LIM, CAM_R, CAM_U, CAM_V, CERAMIC, CLEAR, CLIP_PFX, DARK, DESK_Z, Dv, GRAPHITE, HAND, INK, INK_K, INK_REF_VB, L, LIN, MAT, METAL, OX, OY, P, P0, PALS, PITCH, PITCH0, PX, PY, PZ, RC, RCZ, S, SH, SHADOW, SHADOW_K, SHADOW_LEN, SOFT, TURNS, VIEW, VIEW_NAMES, WOOD, YAW, YAW0, _clipN, act, arcUV, avg, axisFrame, axisRing, board, boardTop, box, boxMid, byDepth, camBasis, camDot, coaxOrder, coaxSeg, coilParts, cross, cyl, cylX, depthOf, dot, ease, ellUV, extrude, f, face, facing, farHalf, fill, filterFor, graphite, handGlyphs, handStrokes, hull, hullInk, ink, inkScale, kAdd, kAt, kLen, kLerp, kRng, kScl, line, loft, matOf, mix, nearArc, nearHalf, norm, obox, oboxPts, on, openShell, paperSheet, pd, rectUV, rod, rotV, rotXY, rrUV, sepOrder, setCam, setClipPrefix, setInk, setLight, setOrigin, shape, sp, step3, strokesLength, sub, tone, toneI, traceStrokes, tx, txM, txOn, txY, txZ, vis, yawTurn } from '../engine/index.js';
+
+/** Where this object's own frame sits on the desk (u along the front edge, v toward the student, mm from the
+ *  desk's centre; rot degrees). The 三八线 is u = 0: the student's half is u < 0. */
+export const PLACE = { u: -274, v: -188, rot: 0 };
+
+export function create(ctx) {
+  const { DK, DU, DV, dk, dkv, undk, deskTop, deskBoard, deskSheet, deskText, deskHand, deskBoxPts, deskBox, deskSetup } = ctx.desk;
+  const { kPlay, kBusy } = ctx.play;
+  const castShadow = ctx.castShadow, clipTo = ctx.clipTo, zhCallouts = ctx.labels;
+
+  /* Fig. 13 — Washi tape (和纸胶带): a 15 mm roll on a cardboard core beside an open 手账 planner, on the shared desk
+     between the sticky notes (12) and the copybook (03), clear of the blank reading sheet in front.
+     Desk terms (this object's frame from PLACE): u along the front edge, v toward the student, z up; 1 unit = 1 mm.
+
+     How it really works:
+     1. Washi tape is thin paper (long kozo / abaca fibres, ~0.08 mm) printed on one side, with a low-tack acrylic
+        adhesive on the other, wound printed side out on a cardboard core (25 mm bore). 10 m of it makes a ~42 mm roll.
+     2. Tearing: the long fibres let it tear across by hand, no scissors: the torn edge is a fuzzy line of fibres.
+        Pull it off the top of the roll (print up, glue down), so it can go straight down onto paper.
+     3. Low tack: it holds on paper, lifts off again without tearing the page: the 手账 decoration tape.
+     4. The end is hard to find: the tape is so thin, and its print runs on round the roll, that its end is a step
+        of 0.08 mm. You turn the roll round and round, scratching with a fingernail until the edge catches and lifts.
+     5. Tear too fast at a slant and the strip twists, its glue side meets itself, and it ends up stuck in a ball.
+
+     Parts:
+     ROLL     cardboard core (end rings, bore) . wound tape (side printed, end faces showing the layers) . the tape's
+              end (a flap once it is found)
+     TAPE     a pulled-out strip (print up) . a torn piece (two torn, fibrous ends) . pieces stuck on the planner . a
+              stuck-together ball
+     PLANNER  cover board . two dot-grid pages . the gutter . handwriting (year, month, date, list) . ticks
+     HAND     a finger with its nail (scratching for the end) */
+
+  /* ---------- layout ---------- */
+  const BH = ctx.deskZ;
+  const DESK_TOP = '#dcb97f';                                            // the desk's laminate, seen down the core's bore
+  const PLN = { u0: -98, u1: 40, v0: -56, v1: 44, mid: -29 };            // the planner spread, gutter at u = mid
+  const ZPG = BH + 2.6;                                                   // the pages' surface
+  const TW = 7.5, R_CORE = 12.5, R_CORE_OUT = 13.8, TAPE_T = .08, LEN0 = 10000;
+  const REST_ROLL = { c: dk(62, 86, BH + TW + .2), a: [0, 0, 1] };      // standing on its end, in front of the planner
+  const HOLD_ROLL = { c: dk(52, 26, BH + 36), a: DV };
+  const LOOSE = { c: [-20, 76], r: 9 };                                   // where a torn piece lands, below the planner
+  const wadSpot = i => [-58 - 13*(i % 4), 86 + (i % 2)*6];                // where the stuck-together balls end up, left of it
+  const SLOTS = [ { c: [-86, -46], r: 45, L: 36 }, { c: [28, -46], r: -45, L: 36 }, { c: [6, -38], r: 0, L: 54 },
+                  { c: [-60, 34], r: 0, L: 48 }, { c: [-40, -46], r: -38, L: 32 } ];
+  const KINDS = [ { name: '条纹' }, { name: '波点' }, { name: '樱花' } ];
+  const FIND_TURNS = [3, 1, 4, 2, 5];
+  const KRAFT = { l:'#e2c597', m:'#c9a777', d:'#9c7b4f' };
+  const SKIN = { l:'#f7d4b3', m:'#eabb98', d:'#cf9a76' };
+  const rollR = len => Math.sqrt(R_CORE_OUT*R_CORE_OUT + Math.max(0, len)*TAPE_T/Math.PI);
+
+  /* ---------- tape colours and print, in tape terms: s along the tape, w across it (-7.5..7.5) ---------- */
+  const tapeBase = m => mix(m.l, '#ffffff', .62);
+  const printCol = (m, kind) => kind === 2 ? mix(m.l, '#ffffff', .1) : m.m;
+  // the print as simple shapes: 'band' polygons (stripes) or 'dot' / 'petal' circles, between s0 and s1
+  function wtElems(kind, s0, s1){
+    const out = [];
+    if (kind === 0) for (let j = Math.floor((s0 - 12)/7); j*7 < s1 + 12; j++){ const s = j*7;
+      out.push({ band: [[s - 6.5, -TW], [s - 3.5, -TW], [s + 6.5, TW], [s + 9.5, TW]].map(([a, b]) => [a - 3, b]) }); }
+    else if (kind === 1) for (let j = Math.floor((s0 - 6)/5); j*5 < s1 + 6; j++) out.push({ dot: [j*5, (j % 2 ? -3.4 : 3.4)], r: 1.5 });
+    else for (let j = Math.floor((s0 - 9)/9); j*9 < s1 + 9; j++){ const c = [j*9, j % 2 ? -2.8 : 2.8];
+      for (let p = 0; p < 5; p++){ const a = p/5*2*Math.PI + j; out.push({ dot: [c[0] + 1.5*Math.cos(a), c[1] + 1.5*Math.sin(a)], r: 1.15 }); }
+      out.push({ dot: c, r: .6, core: true }); }
+    return out;
+  }
+  // draw the print through a map (s, w) -> { p, t (along s), n (front normal) }; skip what faces away
+  function wtPrint(map, kind, m, s0, s1){
+    const col = printCol(m, kind), core = mix(m.m, '#c8a23a', .4); let s = '';
+    for (const e of wtElems(kind, s0, s1)){
+      if (e.band){ const mid = map((e.band[0][0] + e.band[2][0])/2, 0); if (!vis(mid.n)) continue;
+        s += fill(pd(e.band.map(([a, b]) => map(a, b).p)), col); }
+      else { const g = map(e.dot[0], e.dot[1]); if (!vis(g.n)) continue; const t = g.t, wv = cross(g.n, t);
+        const ring = Array.from({length: 10}, (_, i) => { const a = i/10*2*Math.PI; return kAdd(g.p, kAdd(kScl(t, e.r*Math.cos(a)), kScl(wv, e.r*Math.sin(a)))); });
+        s += fill(pd(ring), e.core ? core : col); }
+    }
+    return s;
+  }
+
+  /* ---------- the roll ---------- */
+  // my own ring frame: e1 = -u stays square to both roll axes used (upright z, and lying along v)
+  const wtFrame = a => { const e1 = Math.abs(dot(a, DU)) > .9 ? [0, 0, 1] : kScl(DU, -1); return [e1, norm(cross(a, e1))]; };
+  const wtRing = (c, a, r, n, ph = 0) => { const [e1, e2] = wtFrame(a);
+    return Array.from({length: n}, (_, i) => { const t = ph + i/n*2*Math.PI; return kAdd(c, kAdd(kScl(e1, r*Math.cos(t)), kScl(e2, r*Math.sin(t)))); }); };
+  function rollSvg(st, m){
+    const { c, a } = st.roll, R = rollR(st.len), [e1, e2] = wtFrame(a), base = tapeBase(m);
+    const TM = { l: base, m: mix(base, m.m, .3), d: mix(base, m.d, .45) };
+    const A = wtRing(kAt(c, a, -TW), a, R, 48), B = wtRing(kAt(c, a, TW), a, R, 48);
+    let s = loft(A, B, n => toneI(n, TM));
+    // print on the outer layer: s runs round the roll from the end, which sits at angle st.spin
+    const map = (sv, w) => { const th = st.spin + sv/R, rad = kAdd(kScl(e1, Math.cos(th)), kScl(e2, Math.sin(th)));
+      return { p: kAdd(kAt(c, a, w), kScl(rad, R + .05)), t: kAdd(kScl(e1, -Math.sin(th)), kScl(e2, Math.cos(th))), n: rad }; };
+    s += wtPrint(map, st.kind, m, 0, 2*Math.PI*R);
+    // the end of the outer layer: a hair-line step, or a lifted flap once found
+    const endRad = kAdd(kScl(e1, Math.cos(st.spin)), kScl(e2, Math.sin(st.spin))), endT = kAdd(kScl(e1, -Math.sin(st.spin)), kScl(e2, Math.cos(st.spin)));
+    if (vis(endRad)) s += `<path d="${pd([kAdd(kAt(c, a, -TW), kScl(endRad, R + .06)), kAdd(kAt(c, a, TW), kScl(endRad, R + .06))], false)}" fill="none" stroke="${mix(base, '#000000', .25)}" stroke-width=".5"/>`;
+    // the end faces: tape layers, the core ring, the bore (the desk seen through it)
+    const end = (sg) => { const cc = kAt(c, a, sg*TW), nn = kScl(a, sg); if (!vis(nn)) return '';
+      const o = wtRing(cc, a, R, 48), k1 = wtRing(cc, a, R_CORE_OUT, 36), k0 = wtRing(cc, a, R_CORE, 36), far = wtRing(kAt(c, a, -sg*TW), a, R_CORE, 36);
+      let e = `<path d="${pd(o)}${pd(k1)}" fill="${mix(base, '#ffffff', .25)}" fill-rule="evenodd" stroke="${mix(base, m.d, .3)}" stroke-width=".3"/>`;
+      for (const rr of [R_CORE_OUT + (R - R_CORE_OUT)*.35, R_CORE_OUT + (R - R_CORE_OUT)*.7]) e += `<path d="${pd(wtRing(cc, a, rr, 40))}" fill="none" stroke="${mix(base, m.m, .45)}" stroke-width=".35"/>`;
+      e += `<path d="${pd(k1)}${pd(k0)}" fill="${KRAFT.l}" fill-rule="evenodd"/>` + fill(pd(k0), KRAFT.d)
+        + clipTo(k0, fill(pd(far), st.roll === REST_ROLL || a[2] > .9 ? DESK_TOP : mix(DESK_TOP, '#f2efe7', .3)));
+      return e + ink(pd(o), 1) + ink(pd(k1), .6) + ink(pd(k0), .7); };
+    s += end(1) + end(-1);
+    s += hullInk([...A, ...B], 1.6);
+    if (st.flap > 0 && !st.pull){   // the found end lifts off the roll, tangent to it
+      const p0 = kAdd(c, kScl(endRad, R)), L = 7*st.flap, tip = kAdd(kAdd(p0, kScl(endT, -L)), kScl(endRad, 2.6*st.flap));
+      const q = [kAt(p0, a, -TW), kAt(p0, a, TW), kAt(tip, a, TW), kAt(tip, a, -TW)];
+      s += shape(q, vis(cross(sub(q[1], q[0]), sub(q[3], q[0]))) ? base : mix(base, '#c9b46a', .3), .8);
+    }
+    return act('roll', s);
+  }
+  const rollPts = st => { const R = rollR(st.len); return [...wtRing(kAt(st.roll.c, st.roll.a, -TW), st.roll.a, R, 12), ...wtRing(kAt(st.roll.c, st.roll.a, TW), st.roll.a, R, 12)]; };
+
+  /* ---------- a flat strip of tape (pulled out, torn piece, stuck piece): frame { O start, T along, W across, N up } ---------- */
+  const stripMap = F => (sv, w) => ({ p: kAdd(kAdd(F.O, kScl(F.T, sv)), kScl(F.W, w)), t: F.T, n: F.N });
+  // the outline: straight sides, fibrous torn ends (the crooked tear runs across at a slant)
+  function stripOutline(F, L, seed, torn0 = true, crooked = false){
+    const rnd = kRng(seed), mp = stripMap(F), pts = [];
+    const endPts = (s0, dir, slant) => Array.from({length: 9}, (_, i) => { const w = -TW + 2*TW*i/8; return [s0 + (torn0 ? (rnd() - .5)*1.6 : 0) + slant*w, w]; });
+    const e0 = endPts(0, 1, 0), e1 = endPts(L, -1, crooked ? .9 : 0);
+    for (const [sv, w] of e0) pts.push(mp(sv, w).p);
+    for (const [sv, w] of e1.slice().reverse()) pts.push(mp(sv, w).p);
+    return { pts, e0, e1 };
+  }
+  function stripSvg(F, L, kind, m, seed, opts = {}){
+    const { pts, e0, e1 } = stripOutline(F, L, seed, true, opts.crooked), base = tapeBase(m), up = vis(F.N);
+    let s = fill(pd(pts), up ? base : mix(base, '#d8cfa8', .35), `opacity="${up ? .93 : .97}"`);
+    if (up) s += clipTo(pts, wtPrint(stripMap(F), kind, m, -2, L + 10));
+    // fibres sticking out of the torn ends
+    const mp = stripMap(F), rnd = kRng(seed + 3); let fb = '';
+    for (const [ee, sg] of [[e0, -1], [e1, 1]]) for (let i = 1; i < ee.length - 1; i++){
+      const [sv, w] = ee[i]; fb += pd([mp(sv, w).p, mp(sv + sg*(.6 + rnd()*.9), w + (rnd() - .5)*.8).p], false); }
+    s += `<path d="${fb}" fill="none" stroke="${mix(base, '#ffffff', .4)}" stroke-width=".55" stroke-linecap="round"/>`;
+    return s + ink(pd(pts), .7);
+  }
+  const slotFrame = (sl, z) => { const r = sl.r*Math.PI/180, T = norm(dkv(Math.cos(r), Math.sin(r))), W = norm(dkv(-Math.sin(r), Math.cos(r)));
+    return { O: kAdd(dk(sl.c[0], sl.c[1], z), kScl(T, -sl.L/2)), T, W, N: [0, 0, 1] }; };
+  const looseFrame = L => slotFrame({ c: LOOSE.c, r: LOOSE.r, L }, BH + .06);
+  function frameLerp(A, B, e, arc, twist = 0){
+    const T = norm(kLerp(A.T, B.T, e)), w0 = kLerp(A.W, B.W, e); let W = norm(kAdd(w0, kScl(T, -dot(T, w0)))), N = cross(T, W);
+    if (twist){ const c0 = Math.cos(twist), s0 = Math.sin(twist); [W, N] = [kAdd(kScl(W, c0), kScl(N, s0)), kAdd(kScl(N, c0), kScl(W, -s0))]; }
+    return { O: kAdd(kLerp(A.O, B.O, e), [0, 0, arc*Math.sin(Math.PI*e)]), T, W, N };
+  }
+
+  /* ---------- the planner ---------- */
+  const PCOV = { l:'#8fb3a0', m:'#6f957f', d:'#476a56' };
+  function plannerSvg(st, m){
+    const { u0, u1, v0, v1, mid } = PLN;
+    let s = deskBox(u0 - 3, v0 - 3, BH, u1 + 3, v1 + 3, BH + 1.6, PCOV, toneI, 1.1);
+    for (const [a, b] of [[u0, mid - .6], [mid + .6, u1]]) s += deskSheet(a, v0, b, v1, BH + 1.6, 1, {});
+    // dot grid, 5 mm
+    let d = '';
+    for (const [a, b] of [[u0, mid - .6], [mid + .6, u1]]) for (let u = a + 4; u < b - 2; u += 5) for (let v = v0 + 4; v < v1 - 2; v += 5){ const p = P(...dk(u, v, ZPG + .01)); d += `M${f(p[0])} ${f(p[1])}h.01`; }
+    s += `<path d="${d}" stroke="#9aa6b8" stroke-width="1.1" stroke-linecap="round"/>`;
+    s += `<path d="${pd([dk(mid, v0, ZPG + .02), dk(mid, v1, ZPG + .02)], false)}" fill="none" stroke="${INK}" stroke-width=".9"/>`;
+    // handwriting: year and month on the left page, the date and a short list on the right
+    const hw = [...deskHand('2026', -82, -22, ZPG + .02, 6, 3), ...deskHand('10', -82, 4, ZPG + .02, 17, 5),
+      ...deskHand('10.24', -18, -20, ZPG + .02, 7, 9)];
+    s += graphite(hw, '#3a3f6e', .62, .95);
+    [['背单词', 2], ['刷一套卷子', 14], ['早睡', 26]].forEach(([t, v], i) => {
+      s += shape(rectUV(-18, v - 4.5, -13.5, v).map(([u, w]) => dk(u, w, ZPG + .02)), 'none', .5) + wtTx(dk(-10, v, ZPG + .02), t, 5);
+      if (i === 0) s += graphite([[dk(-17.5, v - 2, ZPG + .03), dk(-16, v, ZPG + .03), dk(-13, v - 6, ZPG + .03)]], '#c8474b', .7, 1); });
+    s += wtTx(dk(-56, 4, ZPG + .02), '月', 9);
+    s += hullInk(deskBoxPts(u0 - 3, v0 - 3, BH, u1 + 3, v1 + 3, ZPG), 1.4);
+    return act('planner', s);
+  }
+
+  // a pen hand on the page (Kaiti), reading along the desk's u
+  const wtTx = (p, str, size, col = '#3a3f6e') => `<text transform="${txM(P(...p), Dv(...DU), Dv(...DV))}" font-size="${size}" fill="${col}" font-family="'Kaiti SC','STKaiti','KaiTi','Songti SC',serif" font-weight="700">${str}</text>`;
+
+  /* ---------- the finger, scratching for the end ---------- */
+  function fingerSvg(fg){
+    const d = norm(sub(fg.tip, fg.base)), len = kLen(sub(fg.tip, fg.base)), o = fg.base;
+    const e2 = norm(kAdd([0, 0, 1], kScl(d, -d[2]))), e1 = cross(e2, d);          // e2: the back of the finger, facing up
+    // a finger: rounded knuckle at the base, a slight bulge at the middle joint, a rounded tip; the nail on its back
+    const prof = [[-6, 3.5], [-4.6, 6.2], [-2.5, 7.3], [0, 7.1], [len*.45, 6.6], [len*.5, 6.9], [len*.55, 6.5], [len - 5, 6.1], [len - 3, 5.5], [len - 1.5, 4.2], [len - .4, 2.4], [len, .6]];
+    const items = [];
+    for (let i = 0; i < prof.length - 1; i++) items.push({ name: 's' + i, s0: prof[i][0], s1: prof[i+1][0],
+      svg: coaxSeg(o, d, { s0: prof[i][0], s1: prof[i+1][0], r0: prof[i][1], r1: prof[i+1][1], M: SKIN, n: 22, w: .01, shade: tone, cap: i === 0 || i === prof.length - 2 }) });
+    let s = coaxOrder(d, items);
+    const all = prof.flatMap(([sv, r]) => axisRing(kAt(o, d, sv), d, r, 12));
+    s += hullInk(all, 1.4);
+    // joint creases, then the nail (its free edge white)
+    let cr = ''; for (const sv of [len*.47, len*.53]) for (const run of nearArc(kAt(o, d, sv), d, 6.85, 24)) if (run.length > 4) cr += pd(run.slice(Math.floor(run.length*.3), Math.ceil(run.length*.7)), false);
+    if (cr) s += `<path d="${cr}" fill="none" stroke="${INK}" stroke-width=".5" opacity=".55"/>`;
+    if (vis(e2)){ const nb = len - 10.5, ne = len - 2.2, nail = [], w = 4.2;
+      for (let i = 0; i <= 6; i++){ const t = i/6, sv = nb + (ne - nb)*t, r = 6.15 + .1*Math.sin(Math.PI*t), hw = w*(.82 + .18*Math.sin(Math.PI*t));
+        nail.push(kAdd(kAdd(kAt(o, d, sv), kScl(e2, r)), kScl(e1, hw))); }
+      for (let i = 6; i >= 0; i--){ const t = i/6, sv = nb + (ne - nb)*t, r = 6.15 + .1*Math.sin(Math.PI*t), hw = w*(.82 + .18*Math.sin(Math.PI*t));
+        nail.push(kAdd(kAdd(kAt(o, d, sv), kScl(e2, r)), kScl(e1, -hw))); }
+      s += shape(nail, '#f9dcd6', .7) + `<path d="${pd([kAdd(kAdd(kAt(o, d, ne - .6), kScl(e2, 6.2)), kScl(e1, -3.4)), kAdd(kAdd(kAt(o, d, ne - .6), kScl(e2, 6.2)), kScl(e1, 3.4))], false)}" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>`; }
+    return s;
+  }
+
+  /* ---------- scene ---------- */
+  const boxOf = (pts, r = 0) => [[0,1,2].map(i => Math.min(...pts.map(p => p[i])) - r), [0,1,2].map(i => Math.max(...pts.map(p => p[i])) + r)];
+  function wadSvg(w, m){
+    const rnd = kRng(w.seed), c = dk(w.c[0], w.c[1], BH + 4*w.k), pts = [];
+    for (let i = 0; i < 18; i++){ const a = rnd()*2*Math.PI, b = (rnd() - .3)*Math.PI/2, r = (3.8 + rnd()*2)*w.k;
+      pts.push(kAdd(c, [r*Math.cos(a)*Math.cos(b), r*Math.sin(a)*Math.cos(b), r*Math.sin(b)*.8])); }
+    const h = hull(pts.map(p => P(...p))), base = tapeBase(m);
+    let s = fill(sp(h), base) + `<path d="${sp(h)}" fill="${m.m}" opacity=".25"/>`;
+    const rr = kRng(w.seed + 1); let cr = '';
+    for (let i = 0; i < 4; i++){ const a = pts[Math.floor(rr()*pts.length)], b = pts[Math.floor(rr()*pts.length)]; cr += pd([a, kLerp(a, b, .5)], false); }
+    return s + `<path d="${cr}" fill="none" stroke="${INK}" stroke-width=".5" opacity=".6"/>` + ink(sp(h), 1.1);
+  }
+  function scene(st, m){
+    // flat things lie under everything, shadows included: the open planner (2.6 mm, too thin to cast one), the pieces
+    // stuck on it, a torn piece lying on the desk
+    let s = plannerSvg(st, m);
+    st.pieces.forEach((pc, i) => { s += stripSvg(slotFrame(SLOTS[pc.slot], ZPG + .03 + .02*i), SLOTS[pc.slot].L, pc.kind, m, pc.seed); });
+    if (st.loose && !st.fall) s += stripSvg(looseFrame(st.loose.L), st.loose.L, st.loose.kind, m, st.loose.seed, { crooked: false });
+    // shadows of the roll and the strips in the air
+    s += castShadow(rollPts(st), BH);
+    if (st.pull > 0){ const F = pullFrame(st); s += castShadow(stripOutline(F, st.pull, 1, false).pts, BH); }
+    if (st.fall) s += castShadow(stripOutline(st.fall.F, st.fall.L, st.fall.seed).pts, BH);
+    for (const w of st.wads) s += wadSvg(w, m);
+    // the roll, the finger and the strips in the air, sorted
+    const items = [{ box: boxOf(rollPts(st)), svg: rollSvg(st, m) }];
+    if (st.finger) items.push({ box: boxOf([st.finger.tip, st.finger.base], 4), svg: fingerSvg(st.finger) });
+    s += byDepth(items);
+    if (st.pull > 0){ const F = pullFrame(st); s += stripSvg(F, st.pull, st.kind, m, st.seed, {}); }
+    if (st.fall) s += stripSvg(st.fall.F, st.fall.L, st.fall.kind, m, st.fall.seed, { crooked: st.fall.crooked });
+    s += labels(st);
+    return s;
+  }
+  // the strip being pulled off the top of the held roll, toward -u, print up
+  function pullFrame(st){ const R = rollR(st.len), top = kAdd(st.roll.c, [0, 0, R]);
+    return { O: kAdd(top, kScl(DU, -st.pull)), T: DU, W: DV, N: [0, 0, 1] }; }
+  function labels(st){
+    const { c, a } = st.roll, R = rollR(st.len), [e1, e2] = wtFrame(a);
+    const items = [
+      { at: kAdd(c, kScl(kAdd(kScl(e1, -.2), kScl(e2, .98)), R)), text: '和纸胶带', on: st.pull > 0 },
+      { at: kAt(c, a, TW*(vis(a) ? 1 : -1)), text: '纸芯', on: false },
+      { at: dk(PLN.u0 + 20, PLN.v1, ZPG), text: '手账本', on: false } ];
+    if (st.flap > 0 && !st.pull){ const er = kAdd(kScl(e1, Math.cos(st.spin)), kScl(e2, Math.sin(st.spin))); items.push({ at: kAdd(c, kScl(er, R + 2)), text: '胶带头', on: true }); }
+    if (st.finger) items.push({ at: st.finger.tip, text: '指甲', on: true });
+    if (st.loose) items.push({ at: looseFrame(st.loose.L).O, text: '撕口', on: false });
+    else if (st.pieces.length){ const pc = st.pieces[st.pieces.length - 1]; items.push({ at: slotFrame(SLOTS[pc.slot], ZPG).O, text: '撕口', on: false }); }
+    if (st.wads.length) items.push({ at: dk(st.wads[0].c[0], st.wads[0].c[1], BH + 6), text: '粘成一团', on: false });
+    return zhCallouts(items, []);
+  }
+
+  // the finger lies along the roll's top rim from the right, its nail edge working at the outer layer, a little up and down
+  function wtFinger(len, t){ const { c } = REST_ROLL, R = rollR(len), rad = norm(dkv(.62, .78)), p = kAdd(kAdd(c, kScl(rad, R + .4)), [0, 0, TW - 2.5]);
+    const tip = kAdd(p, [0, 0, -2.2*Math.abs(Math.sin(t*2*Math.PI*3))]);
+    return { tip, base: kAdd(kAdd(p, kScl(norm(dkv(1, .35)), 40)), [0, 0, 16]) }; }
+
+  /* ---------- actions ---------- */
+  let ui = ctx.ui;
+  const BUSY = { find: '还在找头', tear: '正在撕', stick: '正在贴' };
+  const busy = () => { if (!kBusy()) return false; ui.flash(BUSY[kBusy()] || '等一下'); return true; };
+  const rollLerp = (A, B, e, h = 0) => ({ c: kAdd(kLerp(A.c, B.c, e), [0, 0, h*Math.sin(Math.PI*e)]), a: norm(kLerp(A.a, B.a, e)) });
+  const toRest = st => st.roll !== REST_ROLL ? { ms: 420, start(){ this.from = st.roll; }, step(e){ st.roll = rollLerp(this.from, REST_ROLL, ease(e), 8); }, end(){ st.roll = REST_ROLL; } } : null;
+  // round and round with a fingernail on the side until the end catches
+  function findSegs(st){
+    const n = FIND_TURNS[st.finds % FIND_TURNS.length], ms = 680;
+    const tipAt = (t) => wtFinger(st.len, t);
+    return [toRest(st),
+      { ms: 320, start(){ st.flap = 0; }, step(e){ const fg = tipAt(0), far = kAdd(fg.base, kScl(norm(sub(fg.base, fg.tip)), 30)); st.finger = { tip: kLerp(far, fg.tip, ease(e)), base: kLerp(kAdd(far, kScl(norm(sub(fg.base, fg.tip)), 46)), fg.base, ease(e)) }; } },
+      { ms: n*ms, start(){ this.s0 = st.spin; }, step(e){ const t = e*n*ms/1000; st.spin = this.s0 + e*n*2*Math.PI; st.finger = tipAt(t);
+          st.turnsNow = Math.floor(e*n + 1e-6); },
+        end(){ st.turns += n; st.turnsNow = 0; st.finds++; } },
+      { ms: 260, step(e){ st.flap = ease(e); } },
+      { ms: 300, start(){ this.f0 = st.finger; }, step(e){ const d = norm(sub(this.f0.base, this.f0.tip)); st.finger = { tip: kAt(this.f0.tip, d, 40*ease(e)), base: kAt(this.f0.base, d, 40*ease(e)) }; }, end(){ st.finger = null; st.found = true; } } ];
+  }
+  function find(st){ if (busy()) return;
+    if (st.found) return ui.flash('头已经翘起来了');
+    kPlay(ui, 'find', findSegs(st), () => { const n = FIND_TURNS[(st.finds - 1) % FIND_TURNS.length]; ui.flash(n > 2 ? `转了 ${n} 圈，指甲都抠疼了，终于找到头` : `转了 ${n} 圈就找到了，今天运气不错`, 2400); });
+  }
+  // pull the end off the top of the held roll and tear it across by hand
+  function tearSegs(st, L){
+    const crooked = st.tears % 3 === 2;
+    const segs = [];
+    if (!st.found){ segs.push(...findSegs(st)); }
+    segs.push({ ms: 440, start(){ this.from = st.roll; }, step(e){ st.roll = rollLerp(this.from, HOLD_ROLL, ease(e), 10); }, end(){ st.roll = HOLD_ROLL; st.flap = 0; } });
+    segs.push({ ms: L*13, start(){ this.s0 = st.spin; st.seed = 20 + st.tears*7; }, step(e){ st.pull = Math.max(.5, L*ease(e)); st.spin = this.s0 - st.pull/rollR(st.len); } });
+    segs.push({ ms: 120, step(e){ st.roll = { c: kAdd(HOLD_ROLL.c, [0, 0, (crooked ? 2.2 : 1)*Math.sin(Math.PI*e)]), a: HOLD_ROLL.a }; } });
+    segs.push({ ms: crooked ? 620 : 520, start(){ const F = pullFrame(st);
+        st.fall = { F0: F, F, L, kind: st.kind, seed: st.seed, crooked }; st.len -= L; st.pull = 0; st.tears++; st.found = true; st.flap = 1; },
+      step(e){ const fl = st.fall;
+        if (!fl.crooked) fl.F = frameLerp(fl.F0, looseFrame(L), ease(e), 6, .25*Math.sin(Math.PI*e*2));
+        else { fl.F = frameLerp(fl.F0, slotFrame({ c: wadSpot(st.wadN), r: 30, L }, BH + .06), e, 10, 3*e); fl.L = L*(1 - .85*e); } },
+      end(){ const fl = st.fall; st.fall = null;
+        if (fl.crooked){ st.wads.push({ c: wadSpot(st.wadN), seed: 40 + st.wadN*9, k: 1.6 }); st.wadN++; if (st.wads.length > 4) st.wads.shift(); }
+        else st.loose = { L, kind: fl.kind, seed: fl.seed }; } });
+    segs.push({ ms: 420, start(){ this.from = st.roll; }, step(e){ st.roll = rollLerp(this.from, REST_ROLL, ease(e), 8); }, end(){ st.roll = REST_ROLL; } });
+    return { segs, crooked };
+  }
+  function tear(st){ if (busy()) return;
+    if (st.loose) return ui.flash('手上这段还没贴——先贴手账');
+    const { segs, crooked } = tearSegs(st, SLOTS[st.pieces.length % SLOTS.length].L);
+    if (!st.found) ui.flash('先得找到胶带头……');
+    kPlay(ui, 'tear', segs, () => ui.flash(crooked ? '撕得太快撕歪了，一扭就粘成了一团' : '和纸的纤维长，用手就能撕断', 2400));
+  }
+  // the loose piece goes onto the next decoration spot on the planner and is pressed down
+  function stick(st){ if (busy()) return;
+    const segs = [];
+    let crooked = false;
+    if (!st.loose){ const t = tearSegs(st, SLOTS[st.pieces.length % SLOTS.length].L); crooked = t.crooked; segs.push(...t.segs); }
+    segs.push({ ms: 700, start(){ if (!st.loose){ this.skip = true; return; } const sl = SLOTS[st.pieces.length % SLOTS.length];
+        this.F1 = slotFrame(sl, ZPG + .03 + .02*st.pieces.length); st.fall = { F0: looseFrame(st.loose.L), F: looseFrame(st.loose.L), L: st.loose.L, kind: st.loose.kind, seed: st.loose.seed, crooked: false }; this.pc = st.loose; st.loose = null; },
+      step(e){ if (this.skip) return; st.fall.F = frameLerp(st.fall.F0, this.F1, ease(e), 26); },
+      end(){ if (this.skip) return; st.fall = null; st.pieces.push({ slot: st.pieces.length % SLOTS.length, kind: this.pc.kind, seed: this.pc.seed });
+        st.found = false; st.flap = 0; } });
+    kPlay(ui, 'stick', segs, () => { if (crooked) ui.flash('撕歪了粘成一团——再撕一段吧', 2400); else ui.flash(st.pieces.length >= SLOTS.length ? '这一页贴满了——胶带头又被按回卷上了' : '低粘的胶贴上纸，以后还能揭下来', 2200); });
+  }
+  function setKind(st, k){ st.kind = k; ui.flash(`换成${KINDS[k].name}的那卷`); }
+
+  const __cfg = ({
+    fig:'13', turn:'full', title:'和纸胶带', palette:'blush',
+    state:{ roll: REST_ROLL, spin: .8, len: LEN0, kind: 0, found: false, flap: 0, pull: 0, fall: null, loose: null, pieces: [], wads: [],
+      tears: 0, finds: 0, turns: 0, turnsNow: 0, finger: null, seed: 20, wadN: 0 },
+    scene,
+    stats: st => [ { label:'剩余', value: (st.len/1000).toFixed(2) + ' m' }, { label:'找头转了', value: `${st.turns + st.turnsNow} 圈`, small: true } ],
+    buttons:[
+      { label:'撕一段', onClick: tear },
+      { label:'贴手账', onClick: stick },
+      { label:'换花色', choices: st => KINDS.map((kd, k) => ({ label: kd.name, current: st.kind === k, onClick: s2 => setKind(s2, k) })) },
+      { label:'找胶带头', onClick: find },
+    ],
+    acts:{ roll: st => find(st), planner: st => stick(st) },
+    params:(st, q) => {
+      if (q.has('kind')) st.kind = (+q.get('kind')) % 3;
+      if (q.has('tears')) st.tears = +q.get('tears');
+      if (q.get('found') === '1'){ st.found = true; st.flap = 1; }
+      if (q.has('pieces')) for (let i = 0; i < +q.get('pieces'); i++) st.pieces.push({ slot: i % SLOTS.length, kind: i % 3, seed: 20 + i*7 });
+      if (q.get('loose') === '1') st.loose = { L: 36, kind: st.kind, seed: 77 };
+      if (q.has('wads')) for (let i = 0; i < +q.get('wads'); i++){ st.wads.push({ c: wadSpot(i), seed: 40 + i*9, k: 1.6 }); st.wadN++; }
+      if (q.has('pull')){ st.roll = HOLD_ROLL; st.pull = +q.get('pull'); st.found = true; }
+      if (q.has('fall')){ const e = +q.get('fall'), crooked = q.get('crooked') === '1', F0 = { O: kAdd(kAdd(HOLD_ROLL.c, [0, 0, rollR(LEN0)]), kScl(DU, -36)), T: DU, W: DV, N: [0, 0, 1] };
+        st.roll = HOLD_ROLL; st.fall = { F0, F: crooked ? frameLerp(F0, looseFrame(36), e, 10, 3*e) : frameLerp(F0, looseFrame(36), e, 6), L: crooked ? 36*(1 - .85*e) : 36, kind: st.kind, seed: 50, crooked }; }
+      if (q.has('scratch')) st.finger = wtFinger(LEN0, +q.get('scratch'));
+    },
+  });
+
+  return ctx.adapt(__cfg, { seeThrough: false });
+}

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Book reader lab</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body { background: radial-gradient(ellipse at 50% 40%, #b58a5e, #6b4a2c); }
+      #host { position: fixed; inset: 0; }
+      #lab { position: fixed; right: 8px; bottom: 8px; z-index: 9999; background: #fff8; padding: 4px 8px; border-radius: 6px; font: 12px ui-monospace, Menlo, monospace; }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <div id="lab"><input type="file" id="file" /> <span id="lab-msg"></span></div>
+    <script type="module" src="/src/books/lab.ts"></script>
+  </body>
+</html>
