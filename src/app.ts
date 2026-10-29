@@ -47,6 +47,8 @@ import { WOODS } from './scene/props.js';
 import { Toasts } from './ui/toast';
 import { Toc } from './ui/toc';
 import { deskButton, Tray } from './ui/tray';
+import { EnglishNotebook } from './english/notebook';
+import { PaperSearch } from './ui/papersearch';
 
 /**
  * The way a sheet travels from one place on the desk to another (both given as world corners, top-left first): it is
@@ -100,6 +102,8 @@ export class App {
   deskSettings: DeskSettings | null = null;
   notesList: NotesList;
   toc: Toc;
+  english!: EnglishNotebook;
+  paperSearch!: PaperSearch;
   private pageTag!: HTMLDivElement;
   private noteTab!: HTMLButtonElement;
   private titleTag!: HTMLDivElement;
@@ -222,6 +226,7 @@ export class App {
       aiActivity: (d) => this.aiActivity(d),
       onNotesChanged: () => { if (this.notesList.open) this.showNotesList(); },
       onSheet: () => this.updateNoteTab(),
+      english: (anchor) => { void this.learnEnglish(anchor); },
     });
     this.selection = new SelectionController({
       reader: () => this.reader,
@@ -241,6 +246,7 @@ export class App {
       highlight: (c) => this.highlightSelection(c),
       copy: () => this.copySelection(),
       exportMenu: (el) => this.exportMenu(el),
+      english: (translate) => { const sel = this.selection.sel; if (sel?.kind === 'text') void this.learnEnglish(this.anchorFromSelection(sel), translate); },
     });
     this.tray = new Tray(this.hud);
     this.tray.onTool = (t) => this.setTool(t);
@@ -257,6 +263,32 @@ export class App {
     this.notesList.onExport = () => this.exportNotes();
     this.notesList.onAskPaper = () => this.askAboutPaper();
     this.toc = new Toc(this.hud);
+    this.english = new EnglishNotebook(this.hud, {
+      currentPaper: () => this.meta,
+      ensureText: async (meta, progress, signal) => {
+        const cached = await api.paperTextStatus(meta.id, signal);
+        if (cached.ready) { progress({ phase: 'reading', text: '论文文字已就绪，使用已有内容' }); return; }
+        if (this.meta?.id === meta.id && this.doc) { await this.ensurePaperText(); return; }
+        progress({ phase: 'reading', text: '首次读取这篇论文…' });
+        const doc = await PaperDoc.open(meta);
+        const cancel = () => doc.destroy();
+        signal.addEventListener('abort', cancel, { once: true });
+        try {
+          signal.throwIfAborted();
+          const text = await doc.fullText((i) => progress({ phase: 'reading', text: '正在提取论文文字…', pagesDone: i + 1, pagesTotal: doc.numPages }));
+          signal.throwIfAborted(); await api.putText(meta.id, text);
+        } finally { signal.removeEventListener('abort', cancel); doc.destroy(); }
+      },
+      openSource: async (id, page, text) => {
+        if (this.meta?.id !== id) await this.openPaper(await api.meta(id), 'library');
+        if (this.meta?.id !== id || !this.reader) throw new Error('请稍后再打开来源论文');
+        this.reader.goToPage(page - 1);
+        this.paperSearch.show(text.slice(0, 100));
+      },
+    });
+    this.home.onEnglish = () => { void this.english.show(); };
+    this.home.orbit.keysOff = () => this.english.open || this.paperLib?.open || this.tagEditor?.open;
+    this.paperSearch = new PaperSearch(this.hud, () => this.doc, () => this.reader, () => { this.notes.close(false); this.selection.clear(); this.selbar.hide(); });
     this.toc.onJump = (sec) => {
       const reader = this.reader;
       if (!reader) return;
@@ -640,6 +672,7 @@ export class App {
   }
 
   private closePaper() {
+    this.paperSearch?.hide();
     this.notes.reset();
     this.marks.clearAll();
     this.reader?.destroy();
@@ -870,6 +903,17 @@ export class App {
     }
   }
 
+  private async learnEnglish(anchor: Anchor, translate = false) {
+    const meta = this.meta;
+    if (!meta || anchor.kind !== 'text') return;
+    try {
+      const info = await this.describe(anchor);
+      if (!info.text?.trim()) { this.toasts.show('请先选中论文中的英文'); return; }
+      this.selbar.hide();
+      await this.english.learnSelection({ paperId: meta.id, title: meta.title, text: info.text, page: info.page }, translate);
+    } catch (e: any) { this.toasts.show(e.message, 'error'); }
+  }
+
   /** A conversation about the paper as a whole (flag on page 1). */
   askAboutPaper() {
     if (!this.reader) { this.toasts.show('先放一篇论文上桌'); return; }
@@ -1046,6 +1090,8 @@ export class App {
       h('div', { class: 'dobj-row' },
         envelope,
         shelfBtn,
+        deskButton('englishNotebook', '英语笔记', () => { void this.english.show(); }, 'english-reader-btn paper-only'),
+        deskButton('magnifier', '搜索论文 (⌘F / Ctrl+F)', () => this.paperSearch.show(), 'paper-find-btn paper-only'),
         deskButton('books', '回到书桌 (B)', () => { void this.goHome(); }, 'books paper-only'),
       ));
     this.tagEditor = new TagEditor(this.hud);
@@ -1091,6 +1137,7 @@ export class App {
       h('div', { class: 'help-grid', html: [
         ['拖动纸面空白 / 桌面', '平移（或按住空格）'], ['触控板双指 / 滚轮', '上下滑动'], ['⌘/Ctrl + 滚轮、双指捏合', '放大缩小'],
         ['← → / PageUp PageDown', '翻页'], ['⌘0 · ⌘+ · ⌘-', '适合阅读 · 放大 · 缩小'], ['1 / 2 / 3', '单栏 / 双页 / 平铺'],
+        ['⌘F / Ctrl+F', '搜索整篇论文；Enter 下一个，Shift+Enter 上一个'],
         ['拖选文字', '按词吸附的精确选取'], ['双击 / 三击 / 四击', '词 / 句 / 段'], ['单击标题 · 公式 · 图', '选中整节 · 公式 · 整张图'],
         ['在空白处拖框 · S 剪刀', '框选任意区域'], ['Enter', '就选中的内容问 AI'], ['悬停笔记 · 点击笔记', '若隐若现地预览 · 展开对话'],
         ['V H S E', '铅笔 荧光笔 剪刀 橡皮'], ['T · 点论文标题', '目录'], ['M', '隐藏 / 显示笔记'], ['⌘Z', '撤销擦除'], ['Esc', '收起'],
@@ -1114,7 +1161,8 @@ export class App {
     this.deskSettings = new DeskSettings(this.hud, () => this.home.scene.objects, WOODS, () => this.home.scene.look, (l) => this.home.scene.setLook(l));
     const look = h('button', { class: 'hp-btn', type: 'button', title: '桌面设置' }, '设置');
     look.addEventListener('click', (e) => { e.stopPropagation(); if (this.settingsCard.open) this.settingsCard.hide(); this.deskSettings!.toggle(); });
-    const homePill = h('div', { class: 'home-pill' }, plus, look, ai);
+    const english = h('button', { class: 'hp-btn', type: 'button', title: '打开英语笔记', onclick: () => { void this.english.show(); } }, '英语笔记');
+    const homePill = h('div', { class: 'home-pill' }, plus, english, look, ai);
     homePill.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.hud.append(tl, tr, this.pageTag, bl, help, this.helpCard, this.noteTab, homePill, this.ambienceCard);
     this.viewBar = new ViewBar(this.hud, this.home);
@@ -1471,6 +1519,8 @@ export class App {
   }
 
   private onKey(e: KeyboardEvent) {
+    if (this.english.open) { if (e.key === 'Escape') { e.preventDefault(); this.english.hide(); } return; }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && this.reader && !this.english.open) { e.preventDefault(); this.paperSearch.show(); return; }
     if (isTyping(e)) return;
     // a book open: its reader has the keys
     if (this.book) return;

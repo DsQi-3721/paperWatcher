@@ -33,7 +33,7 @@ export interface Settings {
   language: 'auto' | 'zh' | 'en';
   claude: { bin: string; model: string; effort: string; allowWeb: boolean; loadUserSettings: boolean };
   codex: { bin: string; model: string; effort: string; httpTransport: boolean; allowWeb: boolean };
-  openai: { baseUrl: string; apiKey: string; model: string; fullText: boolean; hasKey?: boolean };
+  openai: { baseUrl: string; apiKey: string; model: string; fullText: boolean; protocol: 'chat' | 'responses'; hasKey?: boolean };
 }
 
 export interface AiStatus {

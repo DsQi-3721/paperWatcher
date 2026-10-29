@@ -41,6 +41,7 @@ export interface NotesHost {
   onNotesChanged(): void;
   /** A sheet was opened, closed, moved or grew: on-screen helpers re-check where it is. */
   onSheet(): void;
+  english(anchor: Anchor): void;
 }
 
 const PAPERS: SheetPaper[] = ['lined', 'grid', 'legal', 'dot', 'lined', 'grid'];
@@ -205,6 +206,7 @@ export class Notes {
       zoom: () => this.host.desk.camera.view.z,
       ask: (ann, q) => this.ask(ann.id, q, { typed: true }),
       close: () => this.close(),
+      english: (ann) => this.host.english(ann.anchor),
       erase: (ann) => this.erase(ann.id),
       copy: (ann) => {
         const s = this.sheets.get(ann.id);

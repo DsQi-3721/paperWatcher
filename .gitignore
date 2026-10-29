@@ -4,6 +4,7 @@ dist/
 
 # your library: papers, notes, books, settings (incl. API keys) — never commit
 data/
+/data
 
 # screenshots and scratch output from the dev scripts
 .shots/

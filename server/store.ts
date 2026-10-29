@@ -42,7 +42,7 @@ export interface Settings {
   language: 'auto' | 'zh' | 'en';
   claude: { bin: string; model: string; effort: string; allowWeb: boolean; loadUserSettings: boolean };
   codex: { bin: string; model: string; effort: string; httpTransport: boolean; allowWeb: boolean };
-  openai: { baseUrl: string; apiKey: string; model: string; fullText: boolean };
+  openai: { baseUrl: string; apiKey: string; model: string; fullText: boolean; protocol: 'chat' | 'responses' };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -50,7 +50,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: 'auto',
   claude: { bin: 'claude', model: '', effort: 'low', allowWeb: false, loadUserSettings: false },
   codex: { bin: 'codex', model: '', effort: 'low', httpTransport: true, allowWeb: false },
-  openai: { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4.1-mini', fullText: true },
+  openai: { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4.1-mini', fullText: true, protocol: 'chat' },
 };
 
 const ID_RE = /^[a-f0-9]{8,64}$/;
@@ -88,10 +88,10 @@ function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 let tmpSeq = 0;
 /** Readers (the list, an agent reading paper.txt, the browser fetching a thumbnail) see the old file or the new one,
  *  never half of one; a temp file that could not be written is not left behind. */
-export async function writeFileAtomic(file: string, data: string | Buffer) {
+export async function writeFileAtomic(file: string, data: string | Buffer, mode?: number) {
   const tmp = `${file}.${process.pid}.${Date.now().toString(36)}.${(tmpSeq++).toString(36)}.tmp`;
   try {
-    await fs.writeFile(tmp, data);
+    await fs.writeFile(tmp, data, { mode });
     await fs.rename(tmp, file);
   } catch (e) {
     await fs.rm(tmp, { force: true }).catch(() => {});
@@ -137,7 +137,7 @@ export async function saveSettings(patch: any): Promise<Settings> {
   return withLock('settings', async () => {
     const cur = await loadSettings();
     const next = merge(cur, patch);
-    await writeJsonFile(path.join(DATA_DIR, 'settings.json'), next);
+    await writeFileAtomic(path.join(DATA_DIR, 'settings.json'), JSON.stringify(next, null, 2), 0o600);
     return next;
   });
 }
