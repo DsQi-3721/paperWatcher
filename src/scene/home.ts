@@ -27,6 +27,7 @@ export class DeskHome {
   onUserMove?: () => void;
   /** The textbook was clicked: the reading shelf. */
   onShelf?: () => void;
+  onEnglish?: () => void;
   private homeView: View | null = null;
 
   constructor(stage: HTMLElement, hud: HTMLElement, thumb: (m: PaperMeta) => string | undefined, fanLib: FanLibrary<PaperMeta> = {}) {
@@ -40,10 +41,16 @@ export class DeskHome {
     this.orbit.onTap = (target) => this.tap(target);
     this.orbit.onMove = () => { this.menu.place(); this.onUserMove?.(); };
     this.scene.el.classList.add('home');
+    this.scene.el.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && (e.target as Element)?.closest('[data-english-notebook]')) {
+        e.preventDefault(); this.onEnglish?.();
+      }
+    });
   }
 
   private tap(target: Element) {
     if (this.mode !== 'home' || this.arranging) return;
+    if (target.closest('[data-english-notebook]')) { this.menu.close(); this.onEnglish?.(); return; }
     if (target.closest('[data-paper="blank"]')) {
       this.menu.close();
       const spot = this.scene.readingSpot();

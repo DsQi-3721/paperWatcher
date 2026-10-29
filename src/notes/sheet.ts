@@ -19,6 +19,7 @@ export interface SheetCtx {
   close(a: Annotation): void;
   erase(a: Annotation): void;
   copy(a: Annotation): void;
+  english(a: Annotation): void;
   moved(a: Annotation, x: number, y: number): void;
   grew(a: Annotation): void;
   retry(a: Annotation): void;
@@ -61,6 +62,7 @@ export class Sheet {
     const head = h('div', { class: 'sh-head' },
       h('span', { class: 'sh-ref' }, ctx.label(a)),
       h('span', { class: 'sh-tools' },
+        ...(a.anchor.kind === 'text' ? [btn('<span style="font-size:12px">Aa</span>', '将原文选区加入英语词本', () => ctx.english(a))] : []),
         btn(ICONS.copy, '复制这段对话', () => ctx.copy(a)),
         btn(ICONS.trash, '擦掉这条笔记', () => ctx.erase(a)),
         btn(ICONS.close, '收起 (Esc)', () => ctx.close(a), 'close'),

@@ -50,6 +50,7 @@ export const api = {
   status: (force = false) => get<AiStatus>('/api/ai/status' + (force ? '?force=1' : '')),
   papers: () => get<PaperMeta[]>('/api/papers'),
   meta: (id: string) => get<PaperMeta>(`/api/papers/${id}`),
+  paperTextStatus: (id: string, signal?: AbortSignal) => fetch(`/api/papers/${id}/text-status`, { signal }).then((r) => json<{ ready: boolean; characters: number }>(r)),
   patchMeta: (id: string, patch: Partial<PaperMeta>) => send<PaperMeta>('PATCH', `/api/papers/${id}`, patch),
   deletePaper: (id: string) => fetch(`/api/papers/${id}`, { method: 'DELETE' }).then((r) => json(r)),
   upload: (file: File | Blob, name: string) =>

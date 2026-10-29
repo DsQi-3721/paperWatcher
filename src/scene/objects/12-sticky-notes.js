@@ -155,13 +155,13 @@ export function create(ctx) {
       if (vis(n3)) for (const z of [BH + .9, BH + 1.6, BH + 2.3]) d += pd([dk(a[0], a[1], z), dk(b[0], b[1], z)], false);
     if (d) s += `<path d="${d}" fill="none" stroke="#fffdf4" stroke-width=".7"/>`;
     s += shape(rectUV(u0 + 8, v0 + 8, u1 - 8, v0 + 26).map(([u, v]) => dk(u, v, zt + .02)), '#fff7e6', .6)
-      + deskText((u0 + u1)/2, v0 + 21, zt + .03, '数学作业本', 8.4, INK, 800, 'middle');
+      + deskText((u0 + u1)/2, v0 + 21, zt + .03, '英语笔记', 8.4, INK, 800, 'middle');
     for (const [lab, v] of [['班级', v1 - 22], ['姓名', v1 - 10]]) s += deskText(u0 + 12, v, zt + .03, lab, 4.8, INK, 700)
       + `<path d="${pd([dk(u0 + 26, v + .6, zt + .03), dk(u1 - 12, v + .6, zt + .03)], false)}" fill="none" stroke="${INK}" stroke-width=".6"/>`;
     s += hullInk(deskBoxPts(u0, v0, BH, u1, v1, zt), 1.5);
     // notes stuck on the cover, in the order they were stuck
     st.book.forEach((nt, i) => { s += snSheet(bookFrame(i), 0, m, nt.memo, nt.fig, .9); });
-    return s;
+    return `<g data-english-notebook="true" role="button" tabindex="0" aria-label="英语笔记">${s}</g>`;
   }
 
   /* ---------- the gel pen ---------- */
@@ -214,7 +214,7 @@ export function create(ctx) {
       { at: mv ? snPt(mv.F, SN/2, 6, mv.k) : dk(u0 + SN*.5, v0 + 4, zt), text: '背胶条', on: !!mv },
       { at: dk(u0 + FIG_A0 + 10, v0 + FIG_B0 + 10, zt), text: '翻页小人', on: !!st.flip },
       { at: kAt(st.pen.o, st.pen.d, 60), text: '中性笔', on: st.pen !== PEN_REST },
-      { at: dk(NB[2] - 6, NB[3] - 6, BH + NBH), text: '作业本', on: false },
+      { at: dk(NB[2] - 6, NB[3] - 6, BH + NBH), text: '英语笔记', on: false },
       // the deskmate's book is across the desk: named only once the note goes there
       ...(st.pig || mv?.to === 'cover' ? [{ at: TB.dk(TB.w*.22, TB.h*.6, TB.z), text: '同桌的语文书', on: true }] : []) ];
     return zhCallouts(items, []);

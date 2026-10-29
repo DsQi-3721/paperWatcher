@@ -4,6 +4,8 @@ import { existsSync, realpathSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { aiStatus, handleAsk } from './ai/index.ts';
+import { handleEnglishAI } from './ai/english.ts';
+import { collectEnglish, listEnglish, patchEnglish } from './english.ts';
 import { IMMUTABLE, sendFile } from './files.ts';
 import { ndjson, readBody, readJson, Router, sendError, sendJson, sendJsonBody } from './http.ts';
 import { arxivFields, fetchPaper } from './resolve.ts';
@@ -14,7 +16,7 @@ import {
 import {
   addPaper, batchPapers, deletePaper, emptyPaperTrash, ensureDirs, forgetPaper, getMeta, listPapers, listPapersJson, listPaperTrash, loadSettings,
   paperDir, patchMeta, publicSettings, purgePaper, restorePaper, searchPaperText, trashPaper, trashThumbPath,
-  DATA_DIR, readNotes, ROOT, saveSettings, thumbPath, writeNotes, writePaperText, writeThumb,
+  DATA_DIR, readNotes, readPaperText, ROOT, saveSettings, thumbPath, writeNotes, writePaperText, writeThumb,
 } from './store.ts';
 
 const PROD = process.argv.includes('--prod');
@@ -39,8 +41,21 @@ api.put('/api/settings', async (req, res) => {
 
 api.get('/api/ai/status', async (req, res) => sendJson(res, await aiStatus(req.query.get('force') === '1')));
 api.post('/api/ai/ask', (req, res) => handleAsk(req, res));
+api.get('/api/english', async (_req, res) => sendJson(res, await listEnglish()));
+api.post('/api/english/generate', handleEnglishAI);
+api.post('/api/english/collect', async (req, res) => {
+  const b = await readJson(req, 1_000_000);
+  sendJson(res, await collectEnglish(b.entries, b.collectionId));
+});
+api.patch('/api/english/:id', async (req, res) => sendJson(res, await patchEnglish(req.params.id, await readJson(req, 2000))));
+api.del('/api/english/:id', async (req, res) => sendJson(res, await patchEnglish(req.params.id, { deleted: true })));
 
 api.get('/api/papers', async (_q, res) => sendJsonBody(res, await listPapersJson()));
+api.get('/api/papers/:id/text-status', async (req, res) => {
+  if (!await getMeta(req.params.id)) return sendError(res, 404, 'No such paper');
+  const text = await readPaperText(req.params.id);
+  sendJson(res, { ready: text.trim().length >= 50, characters: text.length });
+});
 
 api.post('/api/papers/upload', async (req, res) => {
   const buf = await readBody(req);

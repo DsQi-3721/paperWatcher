@@ -12,7 +12,7 @@ import type { AiEvent, Image, RunOptions, RunResult } from './types.ts';
 const MAX_PARALLEL = 4;
 let running = 0;
 
-function run(provider: Settings['provider'], settings: Settings, o: RunOptions, emit: (e: AiEvent) => void): Promise<RunResult> {
+export function run(provider: Settings['provider'], settings: Settings, o: RunOptions, emit: (e: AiEvent) => void): Promise<RunResult> {
   if (provider === 'codex') return runCodex(settings.codex, o, emit);
   if (provider === 'openai') return runOpenAI(settings.openai, o, emit);
   return runClaude(settings.claude, o, emit);

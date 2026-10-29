@@ -99,6 +99,7 @@ export class SettingsCard {
     } else {
       detail = h('div', { class: 'set-detail' },
         field('接口地址', text(s.openai.baseUrl, 'https://api.openai.com/v1', (v) => this.save({ openai: { baseUrl: v.trim() } })), '也可以填 Ollama / LM Studio / DeepSeek 等兼容地址'),
+        field('接口类型', select(s.openai.protocol, [['chat', 'Chat Completions'], ['responses', 'Responses（Codex 兼容）']], (v) => this.save({ openai: { protocol: v } }))),
         field('API Key', text(s.openai.hasKey ? s.openai.apiKey : '', 'sk-…', (v) => this.save({ openai: { apiKey: v.trim() } }), 'password'), '只保存在本机 data/settings.json'),
         field('模型', text(s.openai.model, 'gpt-4.1-mini', (v) => this.save({ openai: { model: v.trim() } }))),
         check(s.openai.fullText, '把全文一起发给模型（问得更准，费 token 更多）', (v) => this.save({ openai: { fullText: v } })),

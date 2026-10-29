@@ -105,6 +105,44 @@ function blobSeal(cx: number, cy: number) {
   return d + 'Z';
 }
 
+/** A vocabulary notebook: bound pages, green cover, metal loops and a hand-lettered Aa label. */
+function englishNotebookIcon() {
+  const rng = new Rng(617), lean = LEAN_TL;
+  const foot = rect(32, 32, 38, 46, -5);
+  let s = castShadow(hullShadow(foot, 6));
+  const book = prism({ pts: foot, z1: 5, lean,
+    tone: { l: P.paper, m: '#eee6d3', d: '#d5c5a4', dd: '#a08c69' }, top: null, rng, stroke: 1.1,
+    sideDetail: (face) => [0.28, 0.55, 0.8].map((t) => seg(lerp(face[0], face[3], t), lerp(face[1], face[2], t), 0.4, '#a08c69', 0.65)).join(''),
+  });
+  s += book.svg;
+  const [a, b, c, d] = book.topPts;
+  const at = (u: number, v: number) => lerp(lerp(a, b, u), lerp(d, c, u), v);
+  const panel = (u0: number, v0: number, u1: number, v1: number) => poly([at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)]);
+  // A ribbon tucked between the final pages, then the cloth cover above it.
+  s += shape(poly([at(0.72, 0.9), at(0.91, 0.9), at(0.91, 1.13), at(0.815, 1.06), at(0.72, 1.13)]), P.tomato.m, 0.8);
+  s += shape(poly(book.topPts), P.mint.m, 1.15);
+  s += `<path d="${panel(0, 0, 1, 0.1)}" fill="${P.mint.l}"/>`;
+  s += `<path d="${panel(0, 0, 0.16, 1)}" fill="${P.mint.d}"/>`;
+  s += seg(at(0.19, 0.04), at(0.19, 0.96), 0.65, P.mint.dd, 0.75);
+  s += hatch(panel(0.02, 0.06, 0.13, 0.95), [5, 4, 18, 55], { gap: 2.5, color: P.mint.dd, width: 0.4, opacity: 0.45, rng });
+  s += shape(panel(0.27, 0.19, 0.89, 0.59), P.paper, 0.7);
+  // Letterforms as strokes, so the cover stays legible without a font dependency.
+  s += `<path d="${poly([at(0.34, 0.5), at(0.44, 0.28), at(0.55, 0.5)]).replace(/Z$/, '')}" fill="none" stroke="${P.mint.dd}" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>`;
+  s += seg(at(0.38, 0.41), at(0.51, 0.41), 1.2, P.mint.dd);
+  const aa = at(0.74, 0.36), ab = at(0.62, 0.34), ac = at(0.61, 0.51), ad = at(0.74, 0.48);
+  s += `<path d="M${f(aa[0])} ${f(aa[1])}C${f(ab[0])} ${f(ab[1])} ${f(ac[0])} ${f(ac[1])} ${f(ad[0])} ${f(ad[1])}" fill="none" stroke="${P.mint.dd}" stroke-width="1.5" stroke-linecap="round"/>`;
+  s += seg(at(0.75, 0.35), at(0.76, 0.5), 1.5, P.mint.dd);
+  s += seg(at(0.33, 0.73), at(0.83, 0.73), 0.75, P.mint.dd, 0.8);
+  s += seg(at(0.33, 0.82), at(0.67, 0.82), 0.65, P.mint.dd, 0.55);
+  for (const v of [0.15, 0.33, 0.51, 0.69, 0.87]) {
+    const [x, y] = at(0.085, v);
+    s += `<circle cx="${f(x)}" cy="${f(y)}" r="1.15" fill="${P.mint.dd}"/>
+      <path d="M${f(x)} ${f(y)}C${f(x - 7)} ${f(y - 4)} ${f(x - 7)} ${f(y + 4)} ${f(x - 0.7)} ${f(y + 1.8)}" fill="none" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M${f(x - 0.4)} ${f(y - 0.4)}Q${f(x - 6.4)} ${f(y - 3)} ${f(x - 5.1)} ${f(y + 1.2)}" fill="none" stroke="${P.metal.l}" stroke-width=".75" stroke-linecap="round"/>`;
+  }
+  return wrap('0 0 64 64', s);
+}
+
 function booksIcon() {
   const lean = LEAN_TL;
   const books: Array<{ c: [number, number]; w: number; h: number; deg: number; tone: Tone }> = [
@@ -331,6 +369,7 @@ export const ICONS = {
   sticky: stickyIcon(),
   envelope: envelopeIcon(),
   books: booksIcon(),
+  englishNotebook: englishNotebookIcon(),
   papers: papersIcon(),
   lamp: lampIcon(),
   glasses: glassesIcon(),
@@ -359,4 +398,3 @@ export const ICONS = {
 };
 
 export type IconName = keyof typeof ICONS;
-

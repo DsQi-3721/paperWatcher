@@ -2,8 +2,10 @@
 // Stateless: the browser sends the thread history with every question.
 import type { Settings } from '../store.ts';
 import type { Emit, RunOptions, RunResult } from './types.ts';
+import { runResponses } from './responses.ts';
 
 export async function runOpenAI(s: Settings['openai'], o: RunOptions, emit: Emit): Promise<RunResult> {
+  if (s.protocol === 'responses') return runResponses(s, o, emit);
   const base = (s.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
   const messages: any[] = [{ role: 'system', content: o.system }];
   for (const h of o.history || []) messages.push({ role: h.role === 'ai' ? 'assistant' : 'user', content: h.text });

@@ -12,6 +12,7 @@ export interface SelbarActions {
   highlight(color: HighlightColor): void;
   copy(): void;
   exportMenu(anchor: HTMLElement): void;
+  english(translate?: boolean): void;
 }
 
 export function quickAsksFor(sel: Selection, lang: 'zh' | 'en' | 'auto'): QuickAsk[] {
@@ -51,6 +52,7 @@ export class Selbar {
   el: HTMLDivElement;
   private quick: HTMLDivElement;
   private hlRow: HTMLDivElement;
+  private vocab: HTMLButtonElement;
   visible = false;
 
   constructor(root: HTMLElement, private actions: SelbarActions) {
@@ -67,7 +69,8 @@ export class Selbar {
     copy.addEventListener('click', () => actions.copy());
     const exp = h('button', { class: 'sb-ico', type: 'button', title: '导出', html: ICONS.download });
     exp.addEventListener('click', () => actions.exportMenu(exp));
-    this.el = h('div', { class: 'selbar' }, askBtn, this.quick, h('span', { class: 'sb-sep' }), this.hlRow, copy, exp);
+    this.vocab = h('button', { class: 'sb-vocab', type: 'button', onclick: () => actions.english() }, '加入词本');
+    this.el = h('div', { class: 'selbar' }, askBtn, this.quick, this.vocab, h('span', { class: 'sb-sep' }), this.hlRow, copy, exp);
     this.el.addEventListener('pointerdown', (e) => e.stopPropagation());
     root.append(this.el);
   }
@@ -75,10 +78,11 @@ export class Selbar {
   show(sel: Selection, lang: 'zh' | 'en' | 'auto') {
     this.quick.replaceChildren(...quickAsksFor(sel, lang).map((q) => {
       const b = h('button', { class: 'sb-q', type: 'button', title: q.prompt }, q.label);
-      b.addEventListener('click', () => this.actions.ask(q.prompt));
+      b.addEventListener('click', () => q.key === 'translate' && sel.kind === 'text' ? this.actions.english(true) : this.actions.ask(q.prompt));
       return b;
     }));
     this.hlRow.style.display = sel.kind === 'text' ? '' : 'none';
+    this.vocab.hidden = sel.kind !== 'text';
     if (!this.visible) {
       this.el.classList.remove('on');
       void this.el.offsetWidth;
@@ -100,7 +104,7 @@ export class Selbar {
     let x = r.x + r.w - w * 0.35;
     let y = r.y + r.h + 12;
     if (y + hh > vh - 70) y = r.y - hh - 14;
-    x = Math.max(80, Math.min(vw - w - 12, x));
+    x = Math.max(12, Math.min(vw - w - 12, x));
     y = Math.max(10, Math.min(vh - hh - 10, y));
     this.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) rotate(-0.6deg)`;
   }
