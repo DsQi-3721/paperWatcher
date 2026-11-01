@@ -177,8 +177,8 @@ export function create(ctx) {
     return `<g data-planner="true" role="button" tabindex="0" aria-label="每日待办本">${act('planner', s)}</g>`;
   }
 
-  // a pen hand on the page (Kaiti), reading along the desk's u
-  const wtTx = (p, str, size, col = '#3a3f6e') => `<text transform="${txM(P(...p), Dv(...DU), Dv(...DV))}" font-size="${size}" fill="${col}" font-family="'Kaiti SC','STKaiti','KaiTi','Songti SC',serif" font-weight="700">${str}</text>`;
+  // The same user handwriting as questions and the editable planner, reading along the desk's u.
+  const wtTx = (p, str, size, col = '#2a4a9e') => `<text transform="${txM(P(...p), Dv(...DU), Dv(...DV))}" font-size="${size}" fill="${col}" font-family="'Caveat','Long Cang','LXGW WenKai',cursive" font-weight="400">${str}</text>`;
 
   /* ---------- the finger, scratching for the end ---------- */
   function fingerSvg(fg){

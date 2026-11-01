@@ -47,6 +47,10 @@
 .hud-tr { position: absolute; right: 18px; top: 14px; display: flex; gap: 12px; pointer-events: auto; }
 .hud-tr .dobj-tag { left: auto; right: -6px; translate: 0 0; }
 
+/* A visible label makes the existing sticky-note icon easy to find. */
+.paper-notes-entry .dobj-tag { opacity:1; transform:none; }
+.paper-notes-entry:focus-visible { outline:2px solid var(--cobalt-d); outline-offset:4px; border-radius:6px; }
+
 .lamp .lamp-bulb { transition: fill .3s; }
 .lamp::after {
   content: ''; position: absolute; left: 78%; top: 42%; width: 50px; height: 50px; border-radius: 50%;
@@ -216,6 +220,7 @@ body.no-paper .tray { translate: -150px -50%; }
 .toc-empty { font: 16px var(--f-ui); opacity: .65; padding: 12px 0; }
 
 /* notes list (sticky notes) */
+.noteslist { z-index:16; }
 .nl-list { display: flex; flex-direction: column; gap: 10px; }
 .nl-empty { font: 16px var(--f-ui); opacity: .65; padding: 16px 0; }
 .nl-row {

@@ -301,7 +301,7 @@ export class App {
     this.buildHud();
     this.deskApps = new DeskApps(this.hud, this.home, () => {
       this.english.hide(); this.settingsCard.hide(); this.importer.hide(); this.deskSettings?.hide();
-      this.paperLib.hide(); this.bookLib.hide(); this.bookImport.hide(); this.notes.close(false);
+      this.paperLib.hide(); this.bookLib.hide(); this.bookImport.hide(); this.notesList.hide(); this.notes.close(false);
     }, () => { void this.english.show(); });
     this.setTool('pen');
 
@@ -1106,17 +1106,20 @@ export class App {
     // what opens them toggles them (a press on one is not a press outside the card)
     this.paperLib.triggers = [shelfBtn, '.fan.on .fan-pill.organize', '.fan.on .fan-pill.bin'];
     this.bookLib.triggers = ['.bk-btn.shelf', '.fan.on .fan-pill.organize', '.fan.on .fan-pill.bin'];
-    // top-right: reading glasses (the reading light), lamp (AI), sticky pad (notes), folder (export), help
+    // top-right: reading glasses, lamp (AI), export; the labeled notes entry stays visible in immersive mode.
     this.lamp = deskButton('lamp', 'AI 阅读伙伴', () => this.settingsCard.toggle(), 'lamp');
     const glassesClose = h('button', { class: 'card-close', type: 'button', html: ICONS.close, title: '收起' });
     this.ambienceCard = h('div', { class: 'card ambience' }, glassesClose, h('div', { class: 'card-title' }, '阅读环境'), h('div', { class: 'am-body' }));
     glassesClose.addEventListener('click', () => this.ambienceCard.classList.remove('on'));
     this.ambienceCard.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.ambienceCard.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+    const paperNotes = deskButton('sticky', '论文笔记', () => this.toggleNotesList(), 'paper-notes-entry paper-only');
+    paperNotes.title = '本篇笔记 · 问问整篇论文 (N)';
+    paperNotes.setAttribute('aria-keyshortcuts', 'N');
     const tr = h('div', { class: 'hud-tr' },
       deskButton('glasses', '阅读环境：背景虚化、亮度、沉浸模式', () => this.toggleAmbienceCard(), 'paper-only'),
       this.lamp,
-      deskButton('sticky', '本篇笔记', () => this.notesList.open ? this.notesList.hide() : this.showNotesList(), 'paper-only'),
+      paperNotes,
       deskButton('folder', '导出笔记', () => this.exportNotes(), 'paper-only'),
     );
     // bottom: page tag with flips
@@ -1146,7 +1149,7 @@ export class App {
         ['⌘F / Ctrl+F', '搜索整篇论文；Enter 下一个，Shift+Enter 上一个'],
         ['拖选文字', '按词吸附的精确选取'], ['双击 / 三击 / 四击', '词 / 句 / 段'], ['单击标题 · 公式 · 图', '选中整节 · 公式 · 整张图'],
         ['在空白处拖框 · S 剪刀', '框选任意区域'], ['Enter', '就选中的内容问 AI'], ['悬停笔记 · 点击笔记', '若隐若现地预览 · 展开对话'],
-        ['V H S E', '铅笔 荧光笔 剪刀 橡皮'], ['T · 点论文标题', '目录'], ['M', '隐藏 / 显示笔记'], ['⌘Z', '撤销擦除'], ['Esc', '收起'],
+        ['V H S E', '铅笔 荧光笔 剪刀 橡皮'], ['T · 点论文标题', '目录'], ['N', '论文笔记 · 问问整篇论文'], ['M', '隐藏 / 显示笔记'], ['⌘Z', '撤销擦除'], ['Esc', '收起'],
         ['L · 左上角的论文堆', '书架：换一篇读，不用回书桌'], ['B · 点 Paper Watcher', '收起论文，回到书桌'], ['F · 眼镜', '沉浸模式 · 阅读环境'],
       ].map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('') }));
     const help = h('button', { class: 'help-btn', type: 'button', title: '快捷键 (?)' }, '?');
@@ -1442,6 +1445,12 @@ export class App {
     this.notesList.show(this.notes.list, (a) => this.notes.label(a));
   }
 
+  private toggleNotesList() {
+    if (!this.reader) return;
+    if (this.notesList.open) this.notesList.hide();
+    else { this.toc.hide(); this.settingsCard.hide(); this.showNotesList(); }
+  }
+
   private exportNotes() {
     if (!this.meta) { this.toasts.show('桌上还没有论文'); return; }
     if (!this.notes.list.length) { this.toasts.show('还没有笔记可以导出'); return; }
@@ -1573,6 +1582,7 @@ export class App {
       case 'Enter': if (this.selection.sel) { e.preventDefault(); this.askAboutSelection(); } break;
       case '?': this.helpCard.classList.toggle('on'); break;
       case 't': case 'T': void this.toggleToc(); break;
+      case 'n': case 'N': this.toggleNotesList(); break;
       case 'm': case 'M': this.toggleInk(); break;
       case 'b': case 'B': void this.goHome(); break;
       case 'l': case 'L': this.toggleLibrary('papers'); break;

@@ -30,7 +30,7 @@ export class PlannerPanel extends DeskPanel {
       b.setAttribute('aria-current', String(day.date === d.date)); history.append(b);
     }
     const dayInput = h('input', { type: 'date', value: d.date, max: d.today, min: d.history.at(-1)?.date, 'aria-label': '待办日期', onchange: () => { if (dayInput.value) { this.date = dayInput.value; void this.load(); } } });
-    const add = h('input', { type: 'text', maxLength: 300, placeholder: '今天想做什么？写下后按回车', 'aria-label': '新待办' });
+    const add = h('input', { type: 'text', class: 'da-handwriting', maxLength: 300, placeholder: '今天想做什么？写下后按回车', 'aria-label': '新待办' });
     const form = h('form', { class: 'da-todo-add' }, add, h('button', { type: 'submit', class: 'primary' }, '添加'));
     form.addEventListener('submit', (event) => { event.preventDefault(); const text = add.value.trim(), date = d.date; if (!text) return; add.value = ''; this.run(() => deskApi.addTodo(date, text), () => this.body.querySelector<HTMLInputElement>('[aria-label="新待办"]')?.focus()); });
     const list = h('div', { class: 'da-todos', 'aria-label': `${d.date} 的待办` }, ...d.items.map((item) => this.row(item, d.date)));
@@ -41,7 +41,7 @@ export class PlannerPanel extends DeskPanel {
   }
   private row(item: TodoItem, date: string) {
     const check = h('input', { type: 'checkbox', checked: item.done, 'aria-label': `完成：${item.text}`, onchange: () => this.run(() => deskApi.patchTodo(date, item.id, { done: check.checked })) });
-    const text = h('input', { type: 'text', value: item.text, maxLength: 300, 'aria-label': `编辑待办：${item.text}` });
+    const text = h('input', { type: 'text', class: 'da-handwriting', value: item.text, maxLength: 300, 'aria-label': `编辑待办：${item.text}` });
     text.addEventListener('change', () => { const value = text.value.trim(); if (value && value !== item.text) this.run(() => deskApi.patchTodo(date, item.id, { text: value })); else text.value = item.text; });
     text.addEventListener('keydown', (e) => { if (e.key === 'Enter') text.blur(); });
     const remove = deskAction('删除', () => this.run(() => deskApi.patchTodo(date, item.id, { deleted: true }), () => {
