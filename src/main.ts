@@ -8,6 +8,7 @@ import './styles/reading.css';
 import './styles/books.css';
 import './styles/library.css';
 import './styles/english.css';
+import './styles/deskapps.css';
 import { App } from './app';
 
 const app = new App(document.getElementById('app')!);

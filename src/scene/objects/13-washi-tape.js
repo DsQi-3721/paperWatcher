@@ -1,3 +1,4 @@
+import { sceneText } from '../../deskapps/text.ts';
 // Fig. 13 和纸胶带 — desk-scene object, ported from stationery/src/13-washi-tape.html by scripts/port-figures.mjs.
 // The figure's own code runs inside create(ctx): ctx.desk is its place on the shared desk (dk, dkv, DU, DV, desk*),
 // ctx.ui its ui (animate, invalidate, flash), ctx.play its one-at-a-time action lock; castShadow and labels are
@@ -159,19 +160,25 @@ export function create(ctx) {
     s += `<path d="${d}" stroke="#9aa6b8" stroke-width="1.1" stroke-linecap="round"/>`;
     s += `<path d="${pd([dk(mid, v0, ZPG + .02), dk(mid, v1, ZPG + .02)], false)}" fill="none" stroke="${INK}" stroke-width=".9"/>`;
     // handwriting: year and month on the left page, the date and a short list on the right
-    const hw = [...deskHand('2026', -82, -22, ZPG + .02, 6, 3), ...deskHand('10', -82, 4, ZPG + .02, 17, 5),
-      ...deskHand('10.24', -18, -20, ZPG + .02, 7, 9)];
+    const date = st.planner?.date || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+    const [year, month, day] = date.split('-');
+    const hw = [...deskHand(year, -82, -22, ZPG + .02, 6, 3), ...deskHand(String(+month), -82, 4, ZPG + .02, 17, 5), ...deskHand(`${+month}.${day}`, -18, -20, ZPG + .02, 7, 9)];
     s += graphite(hw, '#3a3f6e', .62, .95);
-    [['背单词', 2], ['刷一套卷子', 14], ['早睡', 26]].forEach(([t, v], i) => {
-      s += shape(rectUV(-18, v - 4.5, -13.5, v).map(([u, w]) => dk(u, w, ZPG + .02)), 'none', .5) + wtTx(dk(-10, v, ZPG + .02), t, 5);
-      if (i === 0) s += graphite([[dk(-17.5, v - 2, ZPG + .03), dk(-16, v, ZPG + .03), dk(-13, v - 6, ZPG + .03)]], '#c8474b', .7, 1); });
+    const items = st.planner?.items || [];
+    items.slice(0, 3).forEach((item, i) => {
+      const v = 2 + i*12;
+      s += shape(rectUV(-18, v - 4.5, -13.5, v).map(([u, w]) => dk(u, w, ZPG + .02)), 'none', .5) + wtTx(dk(-10, v, ZPG + .02), sceneText(item.text, 9), 4.5);
+      if (item.done) s += graphite([[dk(-17.5, v - 2, ZPG + .03), dk(-16, v, ZPG + .03), dk(-13, v - 6, ZPG + .03)]], '#c8474b', .7, 1);
+    });
+    if (!items.length) s += wtTx(dk(-18, 5, ZPG + .02), '点我写今日待办', 4.2);
+    if (items.length > 3) s += wtTx(dk(-18, 39, ZPG + .02), `还有 ${items.length - 3} 项`, 3.5);
     s += wtTx(dk(-56, 4, ZPG + .02), '月', 9);
     s += hullInk(deskBoxPts(u0 - 3, v0 - 3, BH, u1 + 3, v1 + 3, ZPG), 1.4);
-    return act('planner', s);
+    return `<g data-planner="true" role="button" tabindex="0" aria-label="每日待办本">${act('planner', s)}</g>`;
   }
 
-  // a pen hand on the page (Kaiti), reading along the desk's u
-  const wtTx = (p, str, size, col = '#3a3f6e') => `<text transform="${txM(P(...p), Dv(...DU), Dv(...DV))}" font-size="${size}" fill="${col}" font-family="'Kaiti SC','STKaiti','KaiTi','Songti SC',serif" font-weight="700">${str}</text>`;
+  // The same user handwriting as questions and the editable planner, reading along the desk's u.
+  const wtTx = (p, str, size, col = '#2a4a9e') => `<text transform="${txM(P(...p), Dv(...DU), Dv(...DV))}" font-size="${size}" fill="${col}" font-family="'Caveat','Long Cang','LXGW WenKai',cursive" font-weight="400">${str}</text>`;
 
   /* ---------- the finger, scratching for the end ---------- */
   function fingerSvg(fg){

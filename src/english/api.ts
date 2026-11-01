@@ -6,6 +6,7 @@ async function request<T>(url: string, method = 'GET', body?: unknown): Promise<
   if (!res.ok) throw new Error(value.error || `HTTP ${res.status}`);
   return value;
 }
+const changed = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event('pw-english-changed')); };
 export const englishApi = {
   list: () => request<EnglishEntry[]>('/api/english'),
   collect: async (entries: EnglishDraft[], collectionId: string, progress?: (done: number) => void) => {
@@ -15,9 +16,9 @@ export const englishApi = {
       saved.push(...await request<EnglishEntry[]>('/api/english/collect', 'POST', { entries: entries.slice(i, i + 50), collectionId }));
       progress?.(saved.length);
     }
-    return saved;
+    changed(); return saved;
   },
-  patch: (id: string, patch: { learned?: boolean; deleted?: boolean }) => request<EnglishEntry>(`/api/english/${id}`, 'PATCH', patch),
+  patch: async (id: string, patch: { learned?: boolean; deleted?: boolean }) => { const result = await request<EnglishEntry>(`/api/english/${id}`, 'PATCH', patch); changed(); return result; },
   generate: async (body: unknown, signal: AbortSignal, progress: (value: EnglishProgress) => void, onEntry?: (entry: EnglishDraft) => void): Promise<EnglishResult> => {
     let result: EnglishResult | undefined, error = '';
     await ndjsonPost('/api/english/generate', body, (e) => {

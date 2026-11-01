@@ -1,3 +1,4 @@
+import { sceneText } from '../../deskapps/text.ts';
 // Fig. 02 按动中性笔 — desk-scene object, ported from stationery/src/02-click-pen.html by scripts/port-figures.mjs.
 // The figure's own code runs inside create(ctx): ctx.desk is its place on the shared desk (dk, dkv, DU, DV, desk*),
 // ctx.ui its ui (animate, invalidate, flash), ctx.play its one-at-a-time action lock; castShadow and labels are
@@ -221,6 +222,19 @@ export function create(ctx) {
   /* ---------- its band of the shared sheet ---------- */
   function dictSheet(st){
     const z = ZP + .02;
+    if (st.dictation) {
+      let page = fill(pd(rectUV(18, 22, S4.w - 2, 120).map(([a, b]) => S4.dk(a, b, z))), 'transparent');
+      page += S4.deskText(22, 29, z, `最新词本 · ${st.dictation.length} 项`, 4.2, '#2c2a26', 700);
+      if (!st.dictation.length) page += S4.deskText(22, 44, z, '先在英语词本收藏单词或短语', 4.2, '#476a56', 700);
+      st.dictation.slice(0, 3).forEach((word, i) => {
+        const y = 41 + i*12, result = word.previous;
+        page += S4.deskText(22, y, z, `${i + 1}. ${sceneText(word.chinese, 12)}`, 4.2, '#2c2a26', 700);
+        page += S4.deskText(89, y, z, result ? sceneText(result.answer, 24) : '____________', 3.8, result ? (result.correct ? '#347256' : '#b54636') : '#8e938c', 500);
+        if (result) page += S4.deskText(174, y, z, result.correct ? '✓' : '×', 4.5, result.correct ? '#347256' : '#b54636', 700);
+      });
+      page += S4.deskText(22, 111, z, '点纸面开始默写', 4.2, '#476a56', 700);
+      return `<g data-dictation="true" role="button" tabindex="0" aria-label="英语默写本">${page}</g>`;
+    }
     let s = act('sheet', fill(pd(rectUV(18, 22, S4.w - 2, 120).map(([a, b]) => S4.dk(a, b, z))), 'transparent'));
     s += S4.deskText(22, 29, z, 'Unit 3  听写', 4.2, '#2c2a26', 700);
     for (const q of QS) s += S4.deskText(22, q.pv, z, q.q, 4.6, '#2c2a26', 700);

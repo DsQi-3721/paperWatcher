@@ -65,3 +65,18 @@ for (const entry of OBJECTS) {
     if (obj.seeThrough) { obj.st.xr = obj.st.xrT = 1; for (const [y, p] of VIEWS) { E.setCam(y, p); check(obj, `xr ${y}/${p}`); } }
   });
 }
+
+test('live planner, dictation and music data appear on the desk without injecting SVG markup', () => {
+  E.setOrigin(0, 0, [0, 0], 4); E.setInk(.8); E.setCam(0, 89.9); E.setTextMin(0);
+  const h = harness();
+  const make = (id: string) => { const entry = OBJECTS.find((e) => e.id === id)!; return makeObject(entry.create, entry.n, entry.id, entry.place, h.host); };
+  const svg = (obj: DeskObject) => { const r = check(obj, 'live data'); return r.ground + r.body; };
+  const planner = make('washi-tape'); planner.st.planner = { date: '2026-11-01', items: [{ text: '<img>', done: true }] };
+  assert.match(svg(planner), /data-planner/); assert.match(svg(planner), /&lt;img&gt;/); assert.doesNotMatch(svg(planner), /<img>/);
+  const words = Array.from({ length: 4 }, (_, i) => ({ chinese: `新词${i}<`, previous: { answer: 'wrong<&', correct: false } }));
+  const pen = make('click-pen'); pen.st.dictation = words;
+  assert.match(svg(pen), /最新词本/); assert.match(svg(pen), /新词0&lt;/); assert.match(svg(pen), /wrong&lt;&amp;/);
+  const eraser = make('eraser'); eraser.st.dictation = words; assert.match(svg(eraser), /新词3&lt;/);
+  const player = make('mp3-player'); player.st.on = true; player.st.audioModel = { title: 'Music <img>', duration: 30, currentTime: 5, index: 1, total: 1 };
+  assert.match(svg(player), /Music &lt;img&gt;/); assert.doesNotMatch(svg(player), /<img>/);
+});
