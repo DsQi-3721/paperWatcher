@@ -23,6 +23,8 @@
 .da-todo input[type=text] { flex:1; width:0; border:0!important; background:transparent!important; font-family:'LXGW WenKai',var(--f-ui); font-size:18px; }
 .da-todo.done input[type=text] { color:#929c85!important; text-decoration:line-through; }
 .da-dictation .da-header { background:#ebf0f5; }.da-dict-tools { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }.da-dict-tools input { width:70px; }.da-dict-tools>span { margin-left:auto; font-size:12px; color:#657d8a; }
+.da-speech-controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:14px; padding:10px 12px; background:#edf2f6; border:1px solid #d4dfe7; border-radius:6px; font-size:12px; }
+.da-speech-controls label { display:flex; align-items:center; gap:7px; }.da-speech-controls select { max-width:300px; padding:5px 8px; border:1px solid #b9cbd6; border-radius:5px; background:#fffdf8; color:#3e586b; }.da-speech-controls button { font-size:12px; }
 .da-dict-list { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:20px; }.da-dict-card { padding:16px; border:1px solid #cdd9df; border-left:3px solid #cfaaa1; background:repeating-linear-gradient(#fffdf7 0,#fffdf7 29px,#dfe7ed 30px); border-radius:5px; }
 .da-dict-question { display:flex; gap:10px; align-items:center; margin-bottom:15px; }.da-dict-question h2 { flex:1; font-size:16px; margin:0; }.da-dict-question button { font-size:11px; padding:3px 7px; }.da-number { font-size:11px; color:#8b9daa; }
 .da-answer { display:flex; gap:8px; }.da-answer input { flex:1; width:0; }.da-answer button { font-size:12px; white-space:nowrap; }

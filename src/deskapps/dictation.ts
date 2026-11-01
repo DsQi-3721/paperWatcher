@@ -2,6 +2,7 @@ import { h } from '../util/dom';
 import { deskApi } from './api';
 import { deskAction, DeskPanel } from './panel';
 import type { DictationResult, DictationWord } from './types';
+import { chooseVoice, DictationSpeech, voiceKey } from './speech';
 
 export class DictationPanel extends DeskPanel {
   private words: DictationWord[] = [];
@@ -9,9 +10,36 @@ export class DictationPanel extends DeskPanel {
   private results = new Map<string, DictationResult>();
   private summary = h('span');
   private limit = 10;
+  private speech: DictationSpeech | null = null;
+  private voice = '';
+  private rate = 1;
+  private voiceSelect = h('select', { 'aria-label': '英语发音声音' });
+  private rateSelect = h('select', { 'aria-label': '发音语速' }, h('option', { value: '1' }, '正常'), h('option', { value: '0.85' }, '慢速'));
   onChange: (words: DictationWord[]) => void = () => {};
   onNotebook: () => void = () => {};
-  constructor(root: HTMLElement) { super(root, '英语默写', '来自词本里最新收集的单词和短语。看中文、听发音，再写英文。', 'da-dictation'); }
+  constructor(root: HTMLElement) {
+    super(root, '英语默写', '来自词本里最新收集的单词和短语。看中文、听发音，再写英文。', 'da-dictation');
+    try { const saved = JSON.parse(localStorage.getItem('pw.dictation.speech.v1') || '{}'); this.voice = typeof saved?.voice === 'string' ? saved.voice : ''; this.rate = saved?.rate === .85 ? .85 : 1; } catch { /* defaults */ }
+    if ('speechSynthesis' in window && 'SpeechSynthesisUtterance' in window) {
+      this.speech = new DictationSpeech(speechSynthesis, (text) => new SpeechSynthesisUtterance(text), (text, error) => this.message(text, error));
+      speechSynthesis.addEventListener('voiceschanged', () => this.updateVoices());
+    }
+    this.voiceSelect.addEventListener('change', () => { this.stopSpeech(); this.voice = this.voiceSelect.value; this.saveVoice(); });
+    this.rateSelect.value = String(this.rate);
+    this.rateSelect.addEventListener('change', () => { this.stopSpeech(); this.rate = +this.rateSelect.value; this.saveVoice(); });
+    this.updateVoices();
+  }
+  override hide() { this.stopSpeech(); super.hide(); }
+  private stopSpeech() { this.speech?.stop(); this.message(''); }
+  private saveVoice() { try { localStorage.setItem('pw.dictation.speech.v1', JSON.stringify({ voice: this.voice, rate: this.rate })); } catch { /* speech works without storage */ } }
+  private updateVoices() {
+    const voices = this.speech?.voices() || [], recommended = chooseVoice(voices);
+    // Voice lists can arrive after the panel opens; keep the saved preference until then.
+    const selected = voices.some((v) => voiceKey(v) === this.voice) ? this.voice : '';
+    this.voiceSelect.replaceChildren(h('option', { value: '' }, recommended ? `自动 · ${recommended.name} (${recommended.lang})` : '暂无普通英语声音'),
+      ...voices.map((v) => h('option', { value: voiceKey(v) }, `${v.name} (${v.lang})`)));
+    this.voiceSelect.value = selected; this.voiceSelect.disabled = !voices.length;
+  }
   async show() { this.openPanel(); await this.refresh(); }
   async refresh() {
     try { this.words = await deskApi.words(this.limit); this.render(); this.onChange(this.words); }
@@ -23,9 +51,13 @@ export class DictationPanel extends DeskPanel {
     const refresh = deskAction('刷新最新词条', () => { this.limit = Math.max(1, Math.min(50, +count.value || 10)); this.answers.clear(); this.results.clear(); this.message(''); void this.refresh(); });
     this.updateSummary();
     const toolbar = h('div', { class: 'da-dict-tools' }, h('label', null, '本轮数量 ', count), refresh, this.summary);
+    this.updateVoices();
+    const preview = deskAction('试听', () => { void this.speech?.speak("Hello. Let's practice English.", this.voice, this.rate); }); preview.disabled = !this.speech;
+    const speechControls = h('div', { class: 'da-speech-controls' }, h('label', null, '发音 ', this.voiceSelect), h('label', null, '语速 ', this.rateSelect), preview,
+      deskAction('停止朗读', () => this.stopSpeech()));
     const list = h('div', { class: 'da-dict-list' }, ...this.words.map((word, i) => this.card(word, i)));
     if (!this.words.length) list.append(h('div', { class: 'da-empty' }, h('p', null, '词本里还没有单词或短语。先从论文中收藏几个，就会出现在这里。'), deskAction('打开英语词本', () => { this.hide(); this.onNotebook(); }, 'primary')));
-    this.body.replaceChildren(toolbar, h('p', { class: 'da-help' }, '忽略大小写、首尾空格和句末标点，按词本中的拼写检查；单词内部的连字符和撇号需要保留。'), list);
+    this.body.replaceChildren(toolbar, speechControls, h('p', { class: 'da-help' }, '忽略大小写、首尾空格和句末标点，按词本中的拼写检查；单词内部的连字符和撇号需要保留。'), list);
   }
   private card(word: DictationWord, i: number) {
     const answer = h('input', { type: 'text', value: this.answers.get(word.id) || '', placeholder: '输入英文单词或短语', autocomplete: 'off', spellcheck: false, autocapitalize: 'off', maxLength: 500, 'aria-label': `第 ${i + 1} 题英文答案` });
@@ -41,12 +73,8 @@ export class DictationPanel extends DeskPanel {
       catch (err: any) { feedback.textContent = err.message; feedback.className = 'da-feedback wrong'; }
       finally { submit.disabled = false; }
     });
-    const speak = deskAction('听发音', () => {
-      const utterance = new SpeechSynthesisUtterance(word.english); utterance.lang = 'en-US'; utterance.rate = .85;
-      const voices = speechSynthesis.getVoices(); utterance.voice = voices.find((v) => v.localService && v.lang.startsWith('en')) || voices.find((v) => v.lang.startsWith('en')) || null;
-      speechSynthesis.cancel(); speechSynthesis.speak(utterance);
-    });
-    speak.disabled = !('speechSynthesis' in window);
+    const speak = deskAction('听发音', () => { void this.speech?.speak(word.english, this.voice, this.rate); });
+    speak.disabled = !this.speech;
     return h('article', { class: 'da-dict-card' }, h('div', { class: 'da-dict-question' }, h('span', { class: 'da-number' }, String(i + 1).padStart(2, '0')), h('h2', null, word.chinese), speak), form, feedback);
   }
 }
