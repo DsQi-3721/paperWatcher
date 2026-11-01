@@ -14,6 +14,7 @@ export const MIME: Record<string, string> = {
   '.pfb': 'application/octet-stream', '.bcmap': 'application/octet-stream', '.wasm': 'application/wasm',
   '.icc': 'application/octet-stream', '.pdf': 'application/pdf', '.ico': 'image/x-icon', '.map': 'application/json',
   '.epub': 'application/epub+zip', '.mobi': 'application/x-mobipocket-ebook', '.azw3': 'application/vnd.amazon.ebook',
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.aac': 'audio/aac', '.webm': 'audio/webm',
   '.txt': 'application/octet-stream', '.cbz': 'application/vnd.comicbook+zip', '.fb2': 'application/x-fictionbook+xml', '.md': 'text/markdown',
 };
 

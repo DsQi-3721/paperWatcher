@@ -1,3 +1,4 @@
+import { sceneText } from '../../deskapps/text.ts';
 // Fig. 20 MP3 — desk-scene object (a new one, written for the desk: no standalone page).
 // Its code runs inside create(ctx): ctx.desk is its place on the shared desk (dk, dkv, DU, DV, desk*), ctx.ui its ui
 // (animate, invalidate, flash), ctx.play its one-at-a-time action lock; castShadow and labels are collected by the scene.
@@ -147,15 +148,15 @@ export function create(ctx) {
   function screenFace(st, z){
     let s = fill(pd(pRect(SCR[0] - 1, SCR[1] - 1, SCR[2] + 1, SCR[3] + 1, z)), st.on ? '#06090d' : '#17191d');
     if (!st.on){ s += `<path d="${pd([mp(-10, -36, z + .01), mp(-14, -20, z + .01)], false)}" stroke="#ffffff" stroke-width="1.2" opacity=".14" stroke-linecap="round"/>`; return s; }
-    const CY = '#7fe6ff', WH = '#e8fbff', song = SONGS[st.song];
+    const CY = '#7fe6ff', WH = '#e8fbff', live = st.audioModel, song = live ? { who: '', what: live.title, len: live.duration || 0 } : SONGS[st.song];
     // status: play or pause, repeat-one, the track number, battery
     if (st.playing) s += fill(pd([mp(-13.6, -35.2, z), mp(-11.2, -34, z), mp(-13.6, -32.8, z)]), CY);
     else s += pStroke([mp(-13.3, -35.1, z), mp(-13.3, -32.9, z)], CY, .55) + pStroke([mp(-12.2, -35.1, z), mp(-12.2, -32.9, z)], CY, .55);
-    s += pText(-8.2, -32.9, z, `${st.song + 1}/${SONGS.length}`, 2, CY, 700, 'start');
+    s += pText(-8.2, -32.9, z, live ? `${live.index}/${live.total}` : `${st.song + 1}/${SONGS.length}`, 2, CY, 700, 'start');
     if (st.loop) s += pText(2.5, -32.9, z, '单曲', 2, '#ffd36b', 800, 'middle');
     const bat = pRect(9.6, -35.3, 13.4, -32.9, z); s += ink(pd(bat), .3).replace(INK, CY) + fill(pd(pRect(9.9, -35, 12.4, -33.2, z)), CY) + fill(pd(pRect(13.4, -34.6, 13.9, -33.6, z)), CY);
     // the title, running right to left while it plays
-    const title = `${song.who} - ${song.what}`, size = 4.2, wTitle = [...title].reduce((a, ch) => a + (ch.charCodeAt(0) > 0x2e7f ? 1 : .6)*size, 0) + 10;
+    const title = live ? sceneText(live.title, 80) : `${song.who} - ${song.what}`, size = 4.2, wTitle = [...title].reduce((a, ch) => a + (ch.charCodeAt(0) > 0x2e7f ? 1 : .6)*size, 0) + 10;
     const x0 = SCR[0] + 1 - (st.scroll % wTitle);
     s += pText(x0, -25.6, z, title, size, WH, 800, 'start') + pText(x0 + wTitle, -25.6, z, title, size, WH, 800, 'start');
     // volume bar while it changes, else the progress bar and the times
@@ -401,7 +402,7 @@ export function create(ctx) {
     state:{ flip: 0, lift: 0, on: false, playing: false, song: 0, vol: 1, volShow: 0, scroll: 0, prog: .32, tangle: 0, wig: 0, wigK: 0,
       noteT: 0, noteA: 0, press: null, pressK: 0, loop: false, loopN: 98, hidden: false, hold: false },
     scene,
-    stats: st => [ { label:'正在放', value: `${SONGS[st.song].what}` }, { label:'音量', value: ['小', '中', '大'][st.vol], small: true } ],
+    stats: st => [ { label:'正在放', value: st.audioModel?.title || `${SONGS[st.song].what}` }, { label:'音量', value: ['小', '中', '大'][st.vol], small: true } ],
     buttons:[
       { label:'播放 / 暂停', onClick: play },
       { label:'换一首', choices: st => SONGS.map((sg, i) => ({ label: `${sg.who} - ${sg.what}`, current: i === st.song && st.playing, onClick: st => song(st, i) })) },

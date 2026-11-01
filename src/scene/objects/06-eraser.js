@@ -1,3 +1,4 @@
+import { sceneText } from '../../deskapps/text.ts';
 // Fig. 06 橡皮 — desk-scene object, ported from stationery/src/06-eraser.html by scripts/port-figures.mjs.
 // The figure's own code runs inside create(ctx): ctx.desk is its place on the shared desk (dk, dkv, DU, DV, desk*),
 // ctx.ui its ui (animate, invalidate, flash), ctx.play its one-at-a-time action lock; castShadow and labels are
@@ -218,6 +219,13 @@ export function create(ctx) {
     return pts; }
   function sheet(st){
     const z = ZP + .02;
+    if (st.dictation) {
+      let page = fill(pd(rectUV(18, 128, S4.w - 2, 250).map(([a, b]) => S4.dk(a, b, z))), 'transparent');
+      const words = st.dictation.slice(3, 7);
+      words.forEach((word, i) => { page += S4.deskText(22, 138 + i*12, z, `${i + 4}. ${sceneText(word.chinese, 23)}`, 4.5, '#344c69', 600); });
+      if (!words.length) page += S4.deskText(22, 138, z, '写一遍，记得更牢。', 4.5, '#657482', 500);
+      return `<g data-dictation="true">${page}</g>`;
+    }
     let s = act('sheet', fill(pd(rectUV(18, 128, S4.w - 2, 250).map(([a, b]) => S4.dk(a, b, z))), 'transparent'));
     for (const h of st.holes){ const hp = holePath(h);
       s += fill(pd(hp), '#ddc28f') + `<path d="${pd(hp)}" fill="none" stroke="${INK}" stroke-width=".7"/>`;   // the desk shows through

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { aiStatus, handleAsk } from './ai/index.ts';
 import { handleEnglishAI } from './ai/english.ts';
 import { collectEnglish, listEnglish, patchEnglish } from './english.ts';
+import { deskRoutes } from './desk-routes.ts';
 import { IMMUTABLE, sendFile } from './files.ts';
 import { ndjson, readBody, readJson, Router, sendError, sendJson, sendJsonBody } from './http.ts';
 import { arxivFields, fetchPaper } from './resolve.ts';
@@ -28,6 +29,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 const versioned = (q: URLSearchParams) => (q.has('v') ? IMMUTABLE : 'no-cache');
 
 const api = new Router();
+deskRoutes(api);
 
 api.get('/api/health', (_q, res) => sendJson(res, { ok: true }));
 

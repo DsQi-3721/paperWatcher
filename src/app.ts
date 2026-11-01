@@ -49,6 +49,7 @@ import { Toc } from './ui/toc';
 import { deskButton, Tray } from './ui/tray';
 import { EnglishNotebook } from './english/notebook';
 import { PaperSearch } from './ui/papersearch';
+import { DeskApps } from './deskapps/index';
 
 /**
  * The way a sheet travels from one place on the desk to another (both given as world corners, top-left first): it is
@@ -104,6 +105,7 @@ export class App {
   toc: Toc;
   english!: EnglishNotebook;
   paperSearch!: PaperSearch;
+  deskApps!: DeskApps;
   private pageTag!: HTMLDivElement;
   private noteTab!: HTMLButtonElement;
   private titleTag!: HTMLDivElement;
@@ -287,7 +289,7 @@ export class App {
       },
     });
     this.home.onEnglish = () => { void this.english.show(); };
-    this.home.orbit.keysOff = () => this.english.open || this.paperLib?.open || this.tagEditor?.open;
+    this.home.orbit.keysOff = () => this.english.open || this.deskApps?.open || this.paperLib?.open || this.tagEditor?.open;
     this.paperSearch = new PaperSearch(this.hud, () => this.doc, () => this.reader, () => { this.notes.close(false); this.selection.clear(); this.selbar.hide(); });
     this.toc.onJump = (sec) => {
       const reader = this.reader;
@@ -297,6 +299,10 @@ export class App {
       cam.panTo(reader.viewForPage(sec.page, true, Math.max(0, sec.y - 40), cam.view.z, cam.view.x));
     };
     this.buildHud();
+    this.deskApps = new DeskApps(this.hud, this.home, () => {
+      this.english.hide(); this.settingsCard.hide(); this.importer.hide(); this.deskSettings?.hide();
+      this.paperLib.hide(); this.bookLib.hide(); this.bookImport.hide(); this.notes.close(false);
+    }, () => { void this.english.show(); });
     this.setTool('pen');
 
     const cam = this.desk.camera;
@@ -586,7 +592,7 @@ export class App {
         onBookmarks: (b) => this.shelf.saveBookmarks(meta.id, b),
         onClose: () => { void this.closeBook(); },
         onShelf: () => this.toggleLibrary('books'),
-        keysOff: () => this.bookLib.open || this.tagEditor.open || this.bookImport.open,
+        keysOff: () => this.bookLib.open || this.tagEditor.open || this.bookImport.open || this.deskApps.open,
         ambience: { panel: () => this.ambience.panel(), immersive: () => this.ambience.immersive, setImmersive: (on) => this.ambience.setImmersive(on) },
       });
       this.book = { reader, meta, doc };
@@ -1162,7 +1168,10 @@ export class App {
     const look = h('button', { class: 'hp-btn', type: 'button', title: '桌面设置' }, '设置');
     look.addEventListener('click', (e) => { e.stopPropagation(); if (this.settingsCard.open) this.settingsCard.hide(); this.deskSettings!.toggle(); });
     const english = h('button', { class: 'hp-btn', type: 'button', title: '打开英语笔记', onclick: () => { void this.english.show(); } }, '英语笔记');
-    const homePill = h('div', { class: 'home-pill' }, plus, english, look, ai);
+    const todo = h('button', { class: 'hp-btn', type: 'button', title: '打开每日待办本', onclick: () => { void this.deskApps.planner.show(); } }, '待办');
+    const dictation = h('button', { class: 'hp-btn', type: 'button', title: '练习词本里最新的单词', onclick: () => { void this.deskApps.dictation.show(); } }, '默写');
+    const music = h('button', { class: 'hp-btn', type: 'button', title: '打开 MP3 音乐库', onclick: () => { void this.deskApps.music.show(); } }, 'MP3');
+    const homePill = h('div', { class: 'home-pill' }, plus, english, todo, dictation, music, look, ai);
     homePill.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.hud.append(tl, tr, this.pageTag, bl, help, this.helpCard, this.noteTab, homePill, this.ambienceCard);
     this.viewBar = new ViewBar(this.hud, this.home);
@@ -1519,6 +1528,7 @@ export class App {
   }
 
   private onKey(e: KeyboardEvent) {
+    if (this.deskApps?.open) { if (e.key === 'Escape') { e.preventDefault(); this.deskApps.close(); } return; }
     if (this.english.open) { if (e.key === 'Escape') { e.preventDefault(); this.english.hide(); } return; }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && this.reader && !this.english.open) { e.preventDefault(); this.paperSearch.show(); return; }
     if (isTyping(e)) return;
