@@ -31,13 +31,11 @@ body.reading-open.dim-pages .page .pg-sheet, body.reading-open.dim-pages .bk-she
 
 /* ---------- immersive: the tools go to the edges, and come back where the pointer goes ---------- */
 .hud-tl, .hud-tr, .page-tag, .hud-bl, .help-btn, .tray, [data-edge] { transition: transform .32s cubic-bezier(.3, .8, .3, 1), opacity .25s ease; }
-body.immersive:not(.reveal-top) :is(.hud-tl, [data-edge='top']) { transform: translateY(calc(-100% - 28px)); opacity: 0; pointer-events: none; }
+body.immersive:not(.reveal-top) :is(.hud-tl, .hud-tr, [data-edge='top']) { transform: translateY(calc(-100% - 28px)); opacity: 0; pointer-events: none; }
 body.immersive:not(.reveal-bottom) :is(.page-tag, .hud-bl, .help-btn, [data-edge='bottom']) { transform: translateY(calc(100% + 28px)); opacity: 0; pointer-events: none; }
 body.immersive:not(.reveal-left) :is(.tray, [data-edge='left']) { transform: translateX(calc(-100% - 28px)); opacity: 0; pointer-events: none; }
 body.immersive:not(.reveal-right) [data-edge='right'] { transform: translateX(calc(100% + 28px)); opacity: 0; pointer-events: none; }
 body.immersive:not(.reveal-top) .hud-tl * { pointer-events: none !important; }
-/* Keep the paper notes entry in its original position while the other top-right tools fold away. */
-body.immersive:not(.reveal-top) .hud-tr > :not(.paper-notes-entry) { transform:translateY(calc(-100% - 60px)); opacity:0; pointer-events:none; }
 /* little handles where the tools went */
 body.immersive.reading-open::before, body.immersive.reading-open::after {
   content: ''; position: fixed; left: 50%; width: 64px; height: 4px; margin-left: -32px; border-radius: 4px; z-index: 50; pointer-events: none;
