@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paper Watcher · 论文观察台</title>
+  <style>
+    :root {
+      --bg: #f6f2e9;
+      --surface: #fffdf8;
+      --ink: #1f2328;
+      --muted: #57534e;
+      --subtle: #78716c;
+      --border: #dfd8ca;
+      --accent: #1f4e79;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.65; }
+    .container { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+    header { padding: 48px 0 30px; border-bottom: 1px solid var(--border); }
+    .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; }
+    h1 { margin: 0 0 12px; font-size: clamp(26px, 4vw, 36px); letter-spacing: -0.02em; }
+    .subtitle { margin: 0 0 20px; color: var(--muted); font-size: 16px; max-width: 720px; }
+    .links { display: flex; flex-wrap: wrap; gap: 10px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px; padding: 8px 15px; border-radius: 6px;
+      font-size: 14px; font-weight: 500; text-decoration: none; border: 1px solid var(--border);
+      color: var(--ink); background: var(--surface);
+    }
+    .btn:hover { border-color: #a8a29e; background: #f2ede2; }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.primary:hover { background: #163b5c; }
+
+    section { padding: 36px 0; border-bottom: 1px solid var(--border); }
+    section:last-of-type { border-bottom: none; }
+    h2 { margin: 0 0 10px; font-size: 21px; }
+    .lead { margin: 0 0 18px; color: var(--muted); font-size: 15px; }
+
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .tab {
+      padding: 7px 13px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--muted); font-size: 13.5px; cursor: pointer; font-family: var(--sans);
+    }
+    .tab.active { background: var(--ink); color: #fffdf8; border-color: var(--ink); }
+
+    .stage-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px;
+      box-shadow: 0 4px 16px rgba(31, 35, 40, 0.05);
+    }
+    .stage-img-wrap {
+      position: relative; background: #ede7db; border-radius: 6px; overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .stage-img-wrap img { width: 100%; height: auto; display: block; cursor: zoom-in; }
+    .stage-meta {
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start;
+      gap: 12px; margin-top: 14px;
+    }
+    .stage-caption h3 { margin: 0 0 4px; font-size: 16px; }
+    .stage-caption p { margin: 0; font-size: 14px; color: var(--muted); max-width: 720px; }
+    .nav-arrows { display: flex; gap: 6px; }
+    .nav-btn {
+      padding: 6px 11px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--bg); color: var(--ink); font-size: 13px; cursor: pointer;
+    }
+    .nav-btn:hover { background: #eae3d5; }
+
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+    .info-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+    .info-card h3 { margin: 0 0 8px; font-size: 15.5px; }
+    .info-card p { margin: 0; font-size: 14px; color: var(--muted); }
+    pre {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px 16px; font-family: var(--mono); font-size: 13px; overflow-x: auto; margin: 0;
+    }
+    footer { padding: 28px 0 42px; text-align: center; color: var(--subtle); font-size: 13px; }
+    .lightbox { display: none; position: fixed; inset: 0; background: rgba(24, 24, 27, 0.88); z-index: 999; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
+    .lightbox.open { display: flex; }
+    .lightbox img { max-width: 96vw; max-height: 92vh; border-radius: 6px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <div class="eyebrow">Local-First AI Paper Reader · Interactive Desk</div>
+    <h1>Paper Watcher · 论文观察台</h1>
+    <p class="subtitle">
+      在浏览器里俯看一张可以摆弄的 3D 手绘书桌：把论文像打印纸一样铺在桌上，划选文字、公式或图表就能在旁侧草稿纸上与 AI 连续手写讨论，页边留批注并可点击回指原文，同时把遇到的好词好句收进英语词本。
+    </p>
+    <div class="links">
+      <a class="btn primary" href="https://github.com/DsQi-3721/paperWatcher" target="_blank" rel="noopener">GitHub 代码仓库</a>
+      <a class="btn" href="https://github.com/DsQi-3721/paperWatcher/blob/main/docs/guide.md" target="_blank" rel="noopener">使用指南</a>
+      <a class="btn" href="https://github.com/DsQi-3721/paperWatcher/blob/main/docs/development.md" target="_blank" rel="noopener">开发说明</a>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+
+  <section id="walkthrough">
+    <h2>界面与交互演示</h2>
+    <p class="lead">点击标签或按键盘 <code>←</code> / <code>→</code> 切换实机截图，点击大图可全屏查看。</p>
+
+    <div class="tabs" id="scene-tabs">
+      <button class="tab active" data-i="0">1. 手绘 3D 书桌首页</button>
+      <button class="tab" data-i="1">2. 划选正文与公式图表</button>
+      <button class="tab" data-i="2">3. 草稿纸 AI 连续讨论</button>
+      <button class="tab" data-i="3">4. 英语词本与原文回跳</button>
+      <button class="tab" data-i="4">5. 本地与在线书库</button>
+    </div>
+
+    <div class="stage-card">
+      <div class="stage-img-wrap">
+        <img id="scene-img" src="images/desk.webp" alt="Paper Watcher Screenshot">
+      </div>
+      <div class="stage-meta">
+        <div class="stage-caption">
+          <h3 id="scene-title"></h3>
+          <p id="scene-desc"></p>
+        </div>
+        <div class="nav-arrows">
+          <button class="nav-btn" id="prev-btn">← 上一张</button>
+          <button class="nav-btn" id="next-btn">下一张 →</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="design">
+    <h2>设计特点与本地安全架构</h2>
+    <div class="grid-3">
+      <div class="info-card">
+        <h3>不打断精读心流的交互</h3>
+        <p>摒弃传统 PDF 阅读器加侧边聊天栏的割裂布局，用等轴测手绘书桌、草稿纸逐行流式手写排版和双向引用箭头，把提问、批注和回看原文自然融合在同一视觉空间内。</p>
+      </div>
+      <div class="info-card">
+        <h3>多后端 AI 统一桥接</h3>
+        <p>基于 TypeScript 与 Node.js 统一封装 Claude Code CLI（每条笔记独立会话）、Codex CLI（支持 HTTPS 回退避免受限网络超时）及任意 OpenAI 兼容流式 API。</p>
+      </div>
+      <div class="info-card">
+        <h3>本地优先与最小权限沙箱</h3>
+        <p>论文、笔记与词本全部存于本机 <code>data/</code> 目录。服务默认仅监听 <code>127.0.0.1</code> 并校验 Host/Origin 防跨站；Claude Code 以 <code>--restricted</code> 只读沙箱运行，禁用命令执行并限制访问范围至当前论文目录。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="quickstart">
+    <h2>本地运行</h2>
+    <p class="lead">需要 Node.js ≥ 22.13，两行命令启动并自动打开 <code>http://127.0.0.1:5199</code>：</p>
+    <pre>git clone https://github.com/DsQi-3721/paperWatcher.git
+cd paperWatcher
+npm install
+npm start</pre>
+  </section>
+
+</main>
+
+<footer>
+  <div class="container">
+    Paper Watcher · <a href="https://github.com/DsQi-3721/paperWatcher" style="color:inherit;">github.com/DsQi-3721/paperWatcher</a>
+  </div>
+</footer>
+
+<div class="lightbox" id="lightbox"><img id="lightbox-img" alt="Zoomed Screenshot"></div>
+
+<script>
+const SCENES = [
+  {
+    src: "images/desk.webp",
+    title: "1. 手绘 3D 书桌首页",
+    desc: "桌面用自研等轴测手绘引擎绘制，读过的论文叠成纸堆，点击扇形展开挑选；桌上摆着 20 件可交互的实体文具、台历闹钟、英语笔记本与课本书架，闲置时零功耗（0 rAF）。"
+  },
+  {
+    src: "images/paper-selection.webp",
+    title: "2. 划选正文、公式与图表",
+    desc: "支持拖入本地 PDF 或直接粘贴 arXiv / OpenReview / ACL 链接。铅笔工具精确到字符选区，单击即可选中整节标题、完整公式或图表（自动连带高清截图供多模态模型直接查看）。"
+  },
+  {
+    src: "images/ai-notes.webp",
+    title: "3. 草稿纸上的 AI 连续讨论与页边批注",
+    desc: "提问后桌旁铺开草稿纸，AI 以逐行手写动画流式输出回答并在页边留下一句话要点；回答中的引用带回指箭头，点击直接跳回原文位置，右上角笔记本可随时汇总导出 Markdown。"
+  },
+  {
+    src: "images/english-notebook.webp",
+    title: "4. 边读论文边攒英语词本",
+    desc: "划选生词、短语或长难句一键收入词本，也可让 AI 按需从当前论文整理表达；每条记录保留双语释义、论文原文例句与回跳入口，支持按收集时间/频次排序与掌握标记。"
+  },
+  {
+    src: "images/online-library.webp",
+    title: "5. 本地电子书与在线书库",
+    desc: "点桌上的课本即可切换到电子书阅读，支持 EPUB / MOBI / TXT / PDF / CBZ 等格式，内置 Project Gutenberg 七万余本公版书与 OPDS 书库订阅，记住阅读进度与书签。"
+  }
+];
+
+let cur = 0;
+function render(i) {
+  cur = (i + SCENES.length) % SCENES.length;
+  const s = SCENES[cur];
+  document.getElementById("scene-img").src = s.src;
+  document.getElementById("scene-title").textContent = s.title;
+  document.getElementById("scene-desc").textContent = s.desc;
+  document.querySelectorAll("#scene-tabs .tab").forEach((t, idx) => t.classList.toggle("active", idx === cur));
+}
+document.querySelectorAll("#scene-tabs .tab").forEach(t => t.addEventListener("click", () => render(Number(t.dataset.i))));
+document.getElementById("prev-btn").addEventListener("click", () => render(cur - 1));
+document.getElementById("next-btn").addEventListener("click", () => render(cur + 1));
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft") render(cur - 1);
+  if (e.key === "ArrowRight") render(cur + 1);
+  if (e.key === "Escape") lb.classList.remove("open");
+});
+
+const lb = document.getElementById("lightbox");
+const lbImg = document.getElementById("lightbox-img");
+document.getElementById("scene-img").addEventListener("click", () => {
+  lbImg.src = SCENES[cur].src;
+  lb.classList.add("open");
+});
+lb.addEventListener("click", () => lb.classList.remove("open"));
+render(0);
+</script>
+</body>
+</html>

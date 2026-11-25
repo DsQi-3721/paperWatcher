@@ -1,5 +1,7 @@
 # Paper Watcher · 论文观察台
 
+[在线图文演示](https://dsqi-3721.github.io/paperWatcher/) · [使用指南](docs/guide.md) · [开发说明](docs/development.md)
+
 在浏览器里读论文，划重点、问 AI，顺手攒一本英语笔记。
 界面是一张可以摆弄的书桌，论文和笔记都存在自己的电脑上。
 
